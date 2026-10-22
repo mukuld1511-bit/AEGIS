@@ -1,0 +1,60 @@
+# AEGIS Master System Configuration
+system:
+  name: "AEGIS"
+  version: "1.0.0"
+  description: "Adaptive Evidence-Gated Intelligence System"
+  lab: "AI Lab - 8x NVIDIA DGX Spark Cluster"
+
+network:
+  coordinator:
+    host: "0.0.0.0"
+    port: 9000
+    tailscale_domain: "raspberrypi.tailc8c1f6.ts.net"
+  artifact_server:
+    host: "0.0.0.0"
+    port: 9080
+    storage_root: "./aegis_server/artifacts"
+    tailscale_domain: "labg418pc12.tailc8c1f6.ts.net"
+
+voice:
+  wake_word: "aegis"
+  detection_sensitivity: 0.75
+  supported_languages: ["en", "hi", "hi-en"] # English, Hindi, Hinglish
+  default_language: "hi-en"
+  stt_engine: "whisper" # whisper / faster-whisper / google_fallback
+  stt_model_size: "small" # ideal for Raspberry Pi 8GB
+  tts_engine: "edge_tts" # edge_tts / piper / espeak
+  tts_voice_en: "en-IN-NeerjaNeural"
+  tts_voice_hi: "hi-IN-SwaraNeural"
+  speech_rate: "+5%"
+
+safety:
+  evidence_gating: true
+  require_confirmation_for:
+    - "rm -rf"
+    - "reboot"
+    - "shutdown"
+    - "poweroff"
+    - "mkfs"
+    - "dd if="
+    - "systemctl stop"
+    - "kill -9 1"
+    - "iptables -F"
+    - "drop table"
+    - "truncate"
+  dangerous_ports: [22, 23, 3389]
+  auto_quarantine_failed_nodes: true
+  max_retry_attempts: 2
+
+scheduling:
+  enable_multi_node_handoff: true
+  default_review_node: "dgx-node-2" # Verifier & Code Reviewer
+  task_timeout_seconds: 600
+  heartbeat_interval_seconds: 5
+  node_offline_threshold_seconds: 15
+
+llm_defaults:
+  local_engine: "ollama" # ollama or vllm
+  api_base_url: "http://127.0.0.1:11434"
+  context_window: 8192
+  temperature: 0.2

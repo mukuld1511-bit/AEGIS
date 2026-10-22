@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AEGIS | Adaptive Evidence-Gated Intelligence System</title>
+  <meta name="description" content="Voice-first control and orchestration center for 8x NVIDIA DGX Spark cluster and shared i7-14700 storage.">
+  
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="dark-theme">
+  <!-- Glowing Background Orbs -->
+  <div class="ambient-glow glow-cyan"></div>
+  <div class="ambient-glow glow-purple"></div>
+
+  <!-- Header & Navigation -->
+  <header class="app-header">
+    <div class="brand-container">
+      <div class="brand-logo-hex">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"></polygon>
+          <line x1="12" y1="22" x2="12" y2="12"></line>
+          <line x1="12" y1="12" x2="22" y2="8.5"></line>
+          <line x1="12" y1="12" x2="2" y2="8.5"></line>
+        </svg>
+      </div>
+      <div>
+        <h1 class="brand-title">AEGIS</h1>
+        <p class="brand-subtitle">Adaptive Evidence-Gated Intelligence System &bull; 8x DGX Spark Cluster</p>
+      </div>
+    </div>
+
+    <!-- Cluster Hardware Architecture Pills -->
+    <div class="cluster-meta-bar">
+      <div class="meta-pill" id="pill-coordinator">
+        <span class="status-indicator online-dot"></span>
+        <span class="meta-label">Pi 8GB Core:</span>
+        <span class="meta-val" id="coordinator-host">100.106.207.27</span>
+      </div>
+      <div class="meta-pill" id="pill-storage">
+        <span class="status-indicator storage-dot"></span>
+        <span class="meta-label">i7-14700 PC Vault:</span>
+        <span class="meta-val" id="storage-host">100.88.197.6 (Active)</span>
+      </div>
+      <div class="meta-pill safety-pill" id="pill-safety">
+        <span class="shield-icon">🛡️</span>
+        <span class="meta-val">Evidence-Gated</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="dashboard-main">
+    
+    <!-- Top Voice & Control Interaction Deck -->
+    <section class="control-deck-card glass-panel" aria-label="Voice and Natural Language Interface">
+      <div class="deck-header">
+        <div class="deck-title-group">
+          <span class="section-tag">VOICE & ORCHESTRATION</span>
+          <h2 class="deck-heading">Voice-First Command Center</h2>
+          <p class="deck-desc">Speak in Hindi, Hinglish, or English. AEGIS analyzes intent, selects the best DGX node, and displays terminal activity.</p>
+        </div>
+        <div class="voice-audio-status" id="voice-indicator">
+          <span class="mic-wave-bar"></span>
+          <span class="mic-wave-bar"></span>
+          <span class="mic-wave-bar"></span>
+          <span class="mic-wave-bar"></span>
+          <span id="voice-state-text">Ready for Wake Word "AEGIS"</span>
+        </div>
+      </div>
+
+      <!-- Command Input Field & Action Buttons -->
+      <div class="command-input-container">
+        <button id="btn-mic-toggle" class="mic-btn" title="Toggle Voice Listening">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+            <line x1="12" y1="19" x2="12" y2="23"></line>
+            <line x1="8" y1="23" x2="16" y2="23"></line>
+          </svg>
+        </button>
+        <input 
+          type="text" 
+          id="cmd-input-field" 
+          class="cmd-input" 
+          placeholder="Speak or type: 'AEGIS, create a Python project that analyses a CSV file' or 'Status batao sabhi DGX ka'..."
+          autocomplete="off"
+        />
+        <button id="btn-dispatch-cmd" class="dispatch-btn">
+          <span>Dispatch</span>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Quick Command Chips for Instant Demo / Testing -->
+      <div class="command-chips-row">
+        <span class="chips-label">Sample Voice Prompts:</span>
+        <button class="prompt-chip" data-cmd="AEGIS, tell me which DGX nodes are online and what each is doing.">📊 Cluster Status</button>
+        <button class="prompt-chip" data-cmd="AEGIS, create a Python project that analyses a CSV file with pandas and matplotlib.">🐍 Python CSV Project</button>
+        <button class="prompt-chip" data-cmd="Ask Node 2 to review the code and run the test suite.">🧪 Review & Test Handoff</button>
+        <button class="prompt-chip" data-cmd="Explain the error on Node 3 and attempt a safe fix.">🔧 Safe Error Triage</button>
+        <button class="prompt-chip" data-cmd="Safely shut down Node 5.">⚠️ Safe Shutdown (Gated)</button>
+        <button class="prompt-chip" data-cmd="Sabhi DGX nodes ka status batao.">🇮🇳 Hindi: Sabhi Nodes Status</button>
+      </div>
+
+      <!-- Spoken Audio Response Box -->
+      <div class="spoken-reply-box" id="spoken-reply-container">
+        <div class="speaker-icon">🔊</div>
+        <div class="spoken-content">
+          <div class="spoken-label">AEGIS Spoken Response:</div>
+          <p id="spoken-text" class="spoken-text">"AEGIS listening. All 8 DGX Spark compute nodes and i7-14700 artifact storage are connected."</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Evidence-Gated Safety Authorization Alert (Conditional) -->
+    <section id="safety-alert-panel" class="safety-panel hidden glass-panel">
+      <div class="safety-alert-header">
+        <div class="safety-title">
+          <span class="warning-triangle">⚠️</span>
+          <h3>Evidence-Gated Action Requires Authorization</h3>
+        </div>
+        <span class="risk-badge" id="safety-risk-level">CRITICAL RISK</span>
+      </div>
+      <p class="safety-desc" id="safety-reason">A command requires explicit user confirmation before executing on compute hardware.</p>
+      <div class="safety-command-preview" id="safety-command-text">shutdown -h now</div>
+      <div class="safety-actions">
+        <button id="btn-approve-action" class="btn-safety-approve">✓ Authorize Action</button>
+        <button id="btn-reject-action" class="btn-safety-reject">✕ Deny & Abort</button>
+      </div>
+    </section>
+
+    <!-- Cluster Overview Stats -->
+    <div class="stats-ribbon">
+      <div class="stat-card glass-panel">
+        <div class="stat-num" id="stat-online-nodes">8 / 8</div>
+        <div class="stat-title">DGX Nodes Online</div>
+      </div>
+      <div class="stat-card glass-panel">
+        <div class="stat-num" id="stat-total-params">899 B</div>
+        <div class="stat-title">Autonomous Model Params</div>
+      </div>
+      <div class="stat-card glass-panel">
+        <div class="stat-num" id="stat-total-vram">1,024 GB</div>
+        <div class="stat-title">Unified Cluster Memory</div>
+      </div>
+      <div class="stat-card glass-panel">
+        <div class="stat-num" id="stat-active-tasks">0</div>
+        <div class="stat-title">Active Workflows</div>
+      </div>
+      <div class="stat-card glass-panel">
+        <div class="stat-num" id="stat-screens-active">8 Screens</div>
+        <div class="stat-title">Physical Desktop HUDs</div>
+      </div>
+    </div>
+
+    <!-- 8 NVIDIA DGX Spark Compute Nodes Grid -->
+    <section class="section-container" aria-label="DGX Compute Nodes">
+      <div class="section-header">
+        <div>
+          <span class="section-tag">COMPUTE LAYER</span>
+          <h2 class="section-heading">8x NVIDIA DGX Spark Nodes</h2>
+        </div>
+        <div class="grid-filter-actions">
+          <button class="filter-pill active" data-filter="all">All (8)</button>
+          <button class="filter-pill" data-filter="online">Online</button>
+          <button class="filter-pill" data-filter="busy">Busy</button>
+        </div>
+      </div>
+
+      <div class="dgx-grid" id="dgx-nodes-grid">
+        <!-- Rendered dynamically by app.js with real data -->
+      </div>
+    </section>
+
+    <!-- Lower Deck: Real-time Terminal Stream & Artifact Vault -->
+    <div class="two-column-deck">
+      
+      <!-- Live Physical Screen Terminal Stream -->
+      <section class="terminal-card glass-panel" aria-label="Live DGX Terminal Console">
+        <div class="terminal-topbar">
+          <div class="terminal-traffic-lights">
+            <span class="dot red"></span>
+            <span class="dot yellow"></span>
+            <span class="dot green"></span>
+          </div>
+          <div class="terminal-title">
+            <span id="active-terminal-node">DGX Spark 01 — Terminal Output (Display :0)</span>
+          </div>
+          <div class="terminal-controls">
+            <span class="live-pill"><span class="blink-dot"></span> LIVE</span>
+            <button id="btn-clear-terminal" class="terminal-btn" title="Clear console">Clear</button>
+          </div>
+        </div>
+        <pre class="terminal-body" id="terminal-output">
+<span class="term-dim">[SYSTEM] AEGIS Terminal Stream initialized.</span>
+<span class="term-cyan">[READY] Connected to Central Lab Control Plane.</span>
+<span class="term-emerald">[INFO] Listening for genuine terminal stdout/stderr from active DGX workers...</span>
+        </pre>
+      </section>
+
+      <!-- Shared Artifacts & Project Vault (i7-14700 PC) -->
+      <section class="artifacts-card glass-panel" aria-label="Shared Project Artifacts">
+        <div class="artifacts-header">
+          <div>
+            <span class="section-tag">SHARED STORAGE</span>
+            <h3 class="artifacts-heading">i7-14700 Artifact Vault</h3>
+          </div>
+          <button id="btn-refresh-artifacts" class="refresh-btn" title="Refresh files">↻ Refresh</button>
+        </div>
+        <p class="vault-caption">Project files, analysis CSVs, and logs generated by DGX nodes are automatically archived here.</p>
+
+        <div class="artifacts-list" id="artifacts-list-container">
+          <!-- Populated by app.js -->
+          <div class="artifact-empty-state">No files uploaded yet. Execute a task to generate project artifacts.</div>
+        </div>
+      </section>
+
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="app-footer">
+    <p>AEGIS &bull; Adaptive Evidence-Gated Intelligence System &bull; AI Lab Production Cluster</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

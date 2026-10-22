@@ -1,0 +1,355 @@
+"""AEGIS Central Control API Server (Reverse-Heartbeat Architecture).
+Raspberry Pi Gateway exposed via Tailscale Funnel (https://raspberrypi.tailc8c1f6.ts.net).
+DGX nodes poll outbound via HTTPS heartbeats; pending tasks are delivered in heartbeat responses.
+Zero inbound ports required on student / compute nodes.
+"""
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import Dict, Any, List, Optional
+from collections import defaultdict
+import asyncio
+import json
+import time
+
+from aegis_core.models import NodeTelemetry, TaskRecord, HeartbeatCommand, CommandResult
+from aegis_core.state_manager import StateManager
+from aegis_core.safety_guard import SafetyGuard
+from aegis_core.voice.dialogue_manager import DialogueManager
+from aegis_core.orchestrator import Orchestrator
+
+def create_app(state_mgr: StateManager, orchestrator: Orchestrator, safety: SafetyGuard) -> FastAPI:
+    app = FastAPI(title="AEGIS Central Control Plane (Tailscale Funnel)", version="2.0.0")
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    active_ws_connections: List[WebSocket] = []
+    # Reverse-Heartbeat task and command queues for all nodes
+    node_task_queues: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    client_command_queues: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    latest_screenshots: Dict[str, str] = {}
+
+    # Broadcast state updates to WebSocket clients
+    async def ws_broadcaster(event_payload: Dict[str, Any]):
+        dead_conns = []
+        for ws in active_ws_connections:
+            try:
+                await ws.send_json(event_payload)
+            except Exception:
+                dead_conns.append(ws)
+        for dc in dead_conns:
+            if dc in active_ws_connections:
+                active_ws_connections.remove(dc)
+
+    state_mgr.subscribe(ws_broadcaster)
+
+    class CommandInput(BaseModel):
+        command: str
+        preferred_node: Optional[str] = None
+        session_id: Optional[str] = "default_session"
+
+    class ClientCommandPush(BaseModel):
+        node_id: str
+        command_type: str # warn, lock, unlock, shutdown, capture, execute_task, pull_model, run_command
+        payload: Dict[str, Any] = {}
+
+    class ApprovalInput(BaseModel):
+        approved: bool
+        override_reason: Optional[str] = None
+
+    class DGXCompletePayload(BaseModel):
+        task_id: str
+        node_id: str
+        exit_code: int = 0
+        stdout: str = ""
+        stderr: str = ""
+        generated_file: Optional[str] = None
+        vault_status: Optional[str] = None
+        drive_status: Optional[str] = None
+
+    @app.get("/")
+    def root():
+        return {
+            "system": "AEGIS Central Gateway",
+            "gateway": "https://raspberrypi.tailc8c1f6.ts.net",
+            "architecture": "Reverse-Heartbeat (Outbound Polling)",
+            "telemetry_interval": "6 seconds",
+            "open_inbound_ports_required": 0,
+            "status": "online"
+        }
+
+    @app.get("/api/status")
+    def get_cluster_status():
+        online_count = len([n for n in state_mgr.nodes.values() if n.status in ["online", "busy", "locked"]])
+        queued_tasks = sum(len(q) for q in node_task_queues.values())
+        queued_cmds = sum(len(q) for q in client_command_queues.values())
+        return {
+            "status": "active",
+            "total_nodes": len(state_mgr.nodes),
+            "online_nodes": online_count,
+            "active_tasks": len([t for t in state_mgr.tasks.values() if t.status in ["queued", "running", "awaiting_approval"]]),
+            "pending_reverse_tasks": queued_tasks,
+            "pending_reverse_commands": queued_cmds
+        }
+
+    @app.get("/api/nodes", response_model=List[NodeTelemetry])
+    def get_nodes():
+        return list(state_mgr.nodes.values())
+
+    @app.get("/api/nodes/{node_id}", response_model=NodeTelemetry)
+    def get_node(node_id: str):
+        node = state_mgr.get_node(node_id)
+        if not node:
+            raise HTTPException(status_code=404, detail="Node not found")
+        return node
+
+    @app.post("/api/dgx/heartbeat")
+    @app.post("/api/client/heartbeat")
+    def reverse_heartbeat_poll(telemetry: NodeTelemetry):
+        """
+        Reverse-Heartbeat Core Endpoint (Piet Architecture):
+        Lab PCs and DGX nodes poll outbound via HTTPS every 6s (Zero inbound open ports).
+        Bypasses strict college firewalls and NAT completely.
+        Returns pending commands (warn, lock, shutdown, capture, execute_task, pull_model, run_command)
+        directly inside the heartbeat HTTP response.
+        """
+        if telemetry.screenshot_b64:
+            latest_screenshots[telemetry.node_id] = telemetry.screenshot_b64
+
+        state_mgr.register_heartbeat(telemetry)
+
+        # Check for administrative supervisor command (warn, lock, shutdown, capture)
+        cmd_item = None
+        cmd_queue = client_command_queues[telemetry.node_id]
+        if cmd_queue:
+            cmd_item = cmd_queue.pop(0)
+
+        # Check for AI compute task
+        task_item = None
+        task_queue = node_task_queues[telemetry.node_id]
+        if task_queue:
+            task_item = task_queue.pop(0)
+
+        # If a task is present, wrap it into command format if no explicit admin command exists
+        if not cmd_item and task_item:
+            cmd_item = {
+                "command_id": task_item.get("task_id", f"cmd-{int(time.time())}"),
+                "command_type": "execute_task",
+                "payload": task_item
+            }
+
+        return {
+            "status": "acknowledged",
+            "node_id": telemetry.node_id,
+            "has_command": bool(cmd_item),
+            "command": cmd_item,
+            "has_task": bool(task_item),
+            "task": task_item
+        }
+
+    @app.post("/api/client/command")
+    def push_client_command(cmd_req: ClientCommandPush):
+        """Dispatches a command (warn, lock, unlock, shutdown, capture, run_command, pull_model)
+        into the client node's outbound reverse queue.
+        """
+        cmd_id = f"cmd-{int(time.time())}"
+        cmd_dict = {
+            "command_id": cmd_id,
+            "command_type": cmd_req.command_type,
+            "payload": cmd_req.payload
+        }
+        client_command_queues[cmd_req.node_id].append(cmd_dict)
+        state_mgr._broadcast("client_command_queued", {"node_id": cmd_req.node_id, "command": cmd_dict})
+        return {
+            "status": "queued",
+            "command_id": cmd_id,
+            "node_id": cmd_req.node_id,
+            "command_type": cmd_req.command_type,
+            "message": "Will be delivered on client's next 6s outbound heartbeat"
+        }
+
+    @app.post("/api/client/command_result")
+    def receive_command_result(result: CommandResult):
+        """Called by client agent when a command (warn, capture, run_command) finishes."""
+        if result.screenshot_b64:
+            latest_screenshots[result.node_id] = result.screenshot_b64
+
+        state_mgr._broadcast("client_command_finished", result.model_dump(mode="json"))
+        return {"status": "recorded", "command_id": result.command_id}
+
+    @app.post("/api/client/{node_id}/warn")
+    def warn_node(node_id: str, message: str = "Administrator warning message"):
+        return push_client_command(ClientCommandPush(
+            node_id=node_id,
+            command_type="warn",
+            payload={"message": message}
+        ))
+
+    @app.post("/api/client/{node_id}/lock")
+    def lock_node(node_id: str, reason: str = "Locked by Lab Administrator"):
+        return push_client_command(ClientCommandPush(
+            node_id=node_id,
+            command_type="lock",
+            payload={"reason": reason}
+        ))
+
+    @app.post("/api/client/{node_id}/unlock")
+    def unlock_node(node_id: str):
+        return push_client_command(ClientCommandPush(
+            node_id=node_id,
+            command_type="unlock",
+            payload={}
+        ))
+
+    @app.post("/api/client/{node_id}/capture")
+    def capture_screenshot_node(node_id: str):
+        return push_client_command(ClientCommandPush(
+            node_id=node_id,
+            command_type="capture",
+            payload={"quality": "high"}
+        ))
+
+    @app.post("/api/client/{node_id}/shutdown")
+    def shutdown_node(node_id: str, reason: str = "Authorized remote shutdown"):
+        return push_client_command(ClientCommandPush(
+            node_id=node_id,
+            command_type="shutdown",
+            payload={"reason": reason}
+        ))
+
+    @app.get("/api/client/{node_id}/screenshot")
+    def get_latest_screenshot(node_id: str):
+        shot = latest_screenshots.get(node_id)
+        if not shot:
+            # check telemetry
+            node = state_mgr.get_node(node_id)
+            if node and node.screenshot_b64:
+                shot = node.screenshot_b64
+        if not shot:
+            raise HTTPException(status_code=404, detail="No screenshot available for node")
+        return {"node_id": node_id, "screenshot_b64": shot}
+
+    @app.get("/api/client/summary")
+    def get_lab_clients_summary():
+        """Summary of active windows, idle times, and telemetry for all client nodes."""
+        summary = []
+        for n in state_mgr.nodes.values():
+            summary.append({
+                "node_id": n.node_id,
+                "name": n.name,
+                "status": n.status,
+                "active_window": n.active_window,
+                "idle_time_seconds": n.idle_time_seconds,
+                "cpu_percent": n.cpu_percent,
+                "ram_percent": n.ram_percent,
+                "gpu_utilization": n.gpu.utilization_pct,
+                "vram_used_mb": n.gpu.vram_used_mb,
+                "vram_total_mb": n.gpu.vram_total_mb,
+                "has_screenshot": n.node_id in latest_screenshots or bool(n.screenshot_b64),
+                "last_heartbeat": n.last_heartbeat.isoformat()
+            })
+        return summary
+
+    @app.post("/api/dgx/complete")
+    async def dgx_task_completed(payload: DGXCompletePayload):
+        """Called by DGX agent when a task finishes execution."""
+        state_mgr.complete_task(payload.task_id, summary=payload.stdout[:200])
+        state_mgr._broadcast("dgx_task_finished", payload.model_dump(mode="json"))
+
+        # If this was a primary coding task, automatically queue review task for DGX 2
+        task_rec = state_mgr.tasks.get(payload.task_id)
+        if task_rec and task_rec.reviewer_node_id and task_rec.reviewer_node_id != payload.node_id:
+            rev_node = task_rec.reviewer_node_id
+            review_task = {
+                "task_id": f"{payload.task_id}_rev",
+                "prompt": f"Review the generated code for task {payload.task_id} and write unit tests.",
+                "command": None,
+                "target_file": payload.generated_file,
+                "dictated_upload_cmd": None,
+                "is_review_handoff": True,
+                "parent_task_id": payload.task_id
+            }
+            node_task_queues[rev_node].append(review_task)
+            state_mgr._broadcast("review_task_queued", {"reviewer_node": rev_node, "task": review_task})
+
+        return {"status": "recorded", "task_id": payload.task_id}
+
+    @app.post("/api/tasks/submit")
+    async def submit_command(payload: CommandInput):
+        """User or voice submits command -> enqueued into the assigned DGX node's reverse queue."""
+        res = await orchestrator.handle_user_command(payload.command)
+        if res.get("status") == "task_scheduled":
+            assigned_node = res.get("assigned_node", "dgx-node-1")
+            task_id = res.get("task_id")
+
+            # Enqueue for reverse heartbeat pick-up
+            task_payload = {
+                "task_id": task_id,
+                "prompt": payload.command,
+                "command": None, # Will run local Ollama LLM on DGX
+                "dictated_upload_cmd": f"rclone copyto ./workspace/{task_id}_output.py gdrive:/AEGIS_Cluster_Artifacts/{task_id}/ || true",
+                "storage_vault_url": f"http://100.88.197.6:9080/api/storage/{assigned_node}/upload/{task_id}"
+            }
+            node_task_queues[assigned_node].append(task_payload)
+            state_mgr._broadcast("task_enqueued_in_reverse_hub", {"node": assigned_node, "task": task_payload})
+
+        return res
+
+    @app.get("/api/tasks", response_model=List[TaskRecord])
+    def list_tasks():
+        return list(state_mgr.tasks.values())
+
+    @app.get("/api/tasks/{task_id}")
+    def get_task(task_id: str):
+        if task_id not in state_mgr.tasks:
+            raise HTTPException(status_code=404, detail="Task not found")
+        return state_mgr.tasks[task_id]
+
+    @app.post("/api/tasks/{task_id}/approve")
+    def approve_task_step(task_id: str, payload: ApprovalInput):
+        if task_id not in state_mgr.tasks:
+            raise HTTPException(status_code=404, detail="Task not found")
+        task = state_mgr.tasks[task_id]
+        if payload.approved:
+            task.status = "running"
+            state_mgr._broadcast("task_approved", {"task_id": task_id, "approved": True})
+            return {"status": "approved", "task_id": task_id}
+        else:
+            task.status = "failed"
+            task.result_summary = "Operation rejected by user / safety gate."
+            state_mgr._broadcast("task_rejected", {"task_id": task_id, "reason": payload.override_reason})
+            return {"status": "rejected", "task_id": task_id}
+
+    @app.websocket("/ws/cluster")
+    async def websocket_cluster_endpoint(websocket: WebSocket):
+        await websocket.accept()
+        active_ws_connections.append(websocket)
+        try:
+            snapshot = {
+                "event": "initial_snapshot",
+                "nodes": [n.model_dump(mode="json") for n in state_mgr.nodes.values()],
+                "tasks": [t.model_dump(mode="json") for t in state_mgr.tasks.values()]
+            }
+            await websocket.send_json(snapshot)
+            while True:
+                data = await websocket.receive_text()
+                try:
+                    parsed = json.loads(data)
+                    if parsed.get("action") == "voice_command":
+                        cmd_text = parsed.get("command", "")
+                        result = await orchestrator.handle_user_command(cmd_text)
+                        await websocket.send_json({"event": "command_result", "data": result})
+                except Exception:
+                    pass
+        except WebSocketDisconnect:
+            if websocket in active_ws_connections:
+                active_ws_connections.remove(websocket)
+
+    return app
+

@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.log
+venv/
+.venv/
+env/
+.env
+aegis_server/aegis_bundle.tar.gz
+aegis_storage_vault/dgx-*/outputs/*
+aegis_storage_vault/dgx-*/workspaces/*
+aegis_storage_vault/dgx-*/logs/*
+!aegis_storage_vault/**/.gitkeep
+workspace/
