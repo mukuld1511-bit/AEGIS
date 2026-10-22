@@ -9,7 +9,7 @@ set -e
 NODE_ID=${1:-"dgx-node-1"}
 STORAGE_URL=${2:-"http://100.88.197.6:9080"}
 GATEWAY_URL=${3:-"https://raspberrypi.tailc8c1f6.ts.net"}
-MODEL_NAME=${4:-"deepseek-coder-v2:16b"}
+MODEL_NAME=${4:-"qwen2.5-coder:32b"}
 
 echo "======================================================================"
 echo "🚀 [AEGIS] 1-Click Auto-Setup for ${NODE_ID}"
@@ -72,7 +72,7 @@ User=${USER}
 WorkingDirectory=${HOME}
 Environment=DISPLAY=${ACTIVE_DISP}
 Environment=XAUTHORITY=${HOME}/.Xauthority
-ExecStart=/usr/bin/python3 ${HOME}/dgx_agent.py --id ${NODE_ID} --gateway ${GATEWAY_URL} --storage ${STORAGE_URL} --model ${MODEL_NAME}
+ExecStart=/usr/bin/python3 ${HOME}/dgx_agent.py --id ${NODE_ID} --gateway ${GATEWAY_URL} --storage ${STORAGE_URL} --model ${MODEL_NAME} --ctx 65536
 Restart=always
 RestartSec=5
 

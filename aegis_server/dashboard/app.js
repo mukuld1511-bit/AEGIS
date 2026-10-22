@@ -43,7 +43,7 @@ let selectedNodeId = 'dgx-node-1';
 
 // Initial default node data mapped to the 8 ultimate models (899B / 1024 GB Cluster)
 let nodesData = [
-  { id: 'dgx-node-1', name: 'DGX Spark 01 - Lead Coder', status: 'online', model: 'DeepSeek-Coder-V2 (236B MoE)', vram_used: 98.0, vram_total: 128, gpu_pct: 14, temp: 45, screen: ':0 (Lead Coder HUD)' },
+  { id: 'dgx-node-1', name: 'DGX Spark 01 - Lead Coder', status: 'online', model: 'Qwen2.5-Coder:32B (65K Context)', vram_used: 19.5, vram_total: 128, gpu_pct: 14, temp: 45, screen: ':0 (Lead Coder HUD)' },
   { id: 'dgx-node-2', name: 'DGX Spark 02 - Reviewer & QA', status: 'online', model: 'Qwen2.5-72B-Instruct (72B)', vram_used: 52.0, vram_total: 128, gpu_pct: 8, temp: 41, screen: ':0 (QA Review HUD)' },
   { id: 'dgx-node-3', name: 'DGX Spark 03 - Vision Model', status: 'online', model: 'Pixtral Large (124B Multimodal)', vram_used: 70.0, vram_total: 128, gpu_pct: 16, temp: 44, screen: ':0 (Pixtral Vision HUD)' },
   { id: 'dgx-node-4', name: 'DGX Spark 04 - Writer & Reasoner', status: 'online', model: 'Mixtral 8x22B MoE (141B)', vram_used: 80.0, vram_total: 128, gpu_pct: 22, temp: 48, screen: ':0 (Deep Reason HUD)' },

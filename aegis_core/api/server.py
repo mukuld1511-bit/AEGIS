@@ -304,6 +304,8 @@ def create_app(state_mgr: StateManager, orchestrator: Orchestrator, safety: Safe
                 "task_id": task_id,
                 "prompt": payload.command,
                 "command": None, # Will run local Ollama LLM on DGX
+                "model": "qwen2.5-coder:32b",
+                "num_ctx": 65536,
                 "dictated_upload_cmd": f"rclone copyto ./workspace/{task_id}_output.py gdrive:/AEGIS_Cluster_Artifacts/{task_id}/ || true",
                 "storage_vault_url": f"http://100.88.197.6:9080/api/storage/{assigned_node}/upload/{task_id}"
             }

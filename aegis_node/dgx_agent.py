@@ -873,7 +873,8 @@ class DGXStandaloneAgent:
                  fallback_url: str = "http://100.106.207.27:9000",
                  storage_url: str = "https://labg418pc12.tailc8c1f6.ts.net:8443",
                  ollama_url: str = "http://127.0.0.1:11434",
-                 default_model: str = "deepseek-coder-v2:16b",
+                 default_model: str = "qwen2.5-coder:32b",
+                 default_num_ctx: int = 65536,
                  poll_interval: float = 6.0,
                  show_hud: bool = True):
         self.node_id = node_id
@@ -881,7 +882,8 @@ class DGXStandaloneAgent:
         self.fallback_url = fallback_url.rstrip("/")
         self.storage_url = storage_url.rstrip("/")
         self.ollama_url = ollama_url.rstrip("/")
-        self.default_model = default_model
+        self.default_model = os.environ.get("AEGIS_MODEL", default_model)
+        self.default_num_ctx = int(os.environ.get("AEGIS_NUM_CTX", default_num_ctx))
         self.poll_interval = poll_interval
         self.show_hud = show_hud
 
@@ -1012,30 +1014,82 @@ class DGXStandaloneAgent:
             "last_heartbeat": datetime.now(timezone.utc).isoformat()
         }
 
-    def execute_ollama_query(self, prompt: str) -> str:
-        """Queries local Ollama instance for code generation with HUD log streaming."""
-        print(f"\n[{self.node_id}] Querying local model: {self.default_model}...")
+    def execute_ollama_query(self, prompt: str, model_name: str = None, num_ctx: int = None) -> str:
+        """Queries local Ollama instance with high context window (up to 128K) and live HUD streaming."""
+        chosen_model = model_name or self.default_model
+        ctx = num_ctx or self.default_num_ctx
+
+        print(f"\n[{self.node_id}] Querying model: {chosen_model} (Context Window: {ctx:,} tokens)...")
         if self.hud:
-            self.hud.append_log(f"[{self.node_id}] Querying {self.default_model} on local GPU...\n", "purple")
+            self.hud.append_log(f"[{self.node_id}] Model: {chosen_model} | Context: {ctx:,} tokens | GPU: Active\n", "purple")
 
         system_instruction = (
-            "You are an expert autonomous software engineer executing tasks on an NVIDIA DGX node.\n"
+            "You are an expert autonomous software engineer executing tasks on an NVIDIA DGX node with 128GB Unified Memory.\n"
             "Generate complete, robust, production-quality code to fulfill the user's request.\n"
-            "If the request involves creating a script, module, or document, specify the target filename on the first line inside the code block as a comment (e.g. '# filename: utils.py' or '// filename: main.cpp').\n"
-            "Always wrap your code in standard markdown code blocks (```python ... ```).\n"
+            "When creating multiple files, output EACH file in its own markdown code block (```language ... ```).\n"
+            "On the very first line inside EACH code block, specify the exact filename as a comment:\n"
+            "- For Python: # filename: filename.py\n"
+            "- For JavaScript/TypeScript/C++/C: // filename: filename.js\n"
+            "- For HTML/CSS/SQL: /* filename: style.css */ or <!-- filename: index.html -->\n"
+            "Always output full, complete code without placeholders or ellipses ('// ...').\n"
             "Do NOT include file upload code, network synchronization, or destination URLs; the autonomous runtime environment automatically captures and synchronizes all generated artifacts."
         )
 
         url = f"{self.ollama_url}/api/generate"
         payload = {
-            "model": self.default_model,
+            "model": chosen_model,
             "prompt": prompt,
             "system": system_instruction,
-            "stream": False
+            "stream": True,
+            "options": {
+                "num_ctx": ctx,            # 65,536 tokens by default!
+                "num_predict": 16384,      # Large generation output
+                "temperature": 0.2
+            }
         }
-        res = http_post_json(url, payload, timeout=180.0)
-        resp_text = res.get("response", "")
-        if self.hud and resp_text:
+
+        full_chunks = []
+        try:
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=600.0) as resp:
+                token_counter = 0
+                for line in resp:
+                    if not line:
+                        continue
+                    try:
+                        chunk = json.loads(line.decode("utf-8"))
+                        token = chunk.get("response", "")
+                        if token:
+                            full_chunks.append(token)
+                            token_counter += 1
+                            if self.hud and token_counter % 6 == 0:
+                                self.hud.append_log(token)
+                        if chunk.get("done", False):
+                            break
+                    except Exception:
+                        continue
+            resp_text = "".join(full_chunks)
+        except Exception as e:
+            err_str = str(e).lower()
+            if "404" in err_str or "not found" in err_str:
+                print(f"[*] Model '{chosen_model}' not found in Ollama. Auto-pulling on GPU...")
+                if self.hud:
+                    self.hud.append_log(f"[*] Auto-pulling {chosen_model} on local GPU...\n", "amber")
+                subprocess.run(["ollama", "pull", chosen_model])
+                payload["stream"] = False
+                res = http_post_json(url, payload, timeout=600.0)
+                resp_text = res.get("response", "")
+            else:
+                payload["stream"] = False
+                res = http_post_json(url, payload, timeout=600.0)
+                resp_text = res.get("response", "")
+
+        if self.hud and resp_text and not full_chunks:
             self.hud.append_log(f"\n--- Output ---\n{resp_text[:500]}...\n")
         return resp_text
 
@@ -1085,7 +1139,7 @@ class DGXStandaloneAgent:
                     ext = ext_map.get(lang_lower, "py" if "def " in code or "import " in code else "txt")
 
                 filename = None
-                code_lines = code.splitlines()[:3]
+                code_lines = code.splitlines()[:4]
                 for line in code_lines:
                     fn_match = re.search(r"(?:#|//|<!--|\*)\s*(?:filename:?\s*|file:?\s*)([\w-]+\.\w+)", line, re.IGNORECASE)
                     if fn_match:
@@ -1119,6 +1173,27 @@ class DGXStandaloneAgent:
             vault_res = self.upload_to_i7_vault(text_file, task_id)
             saved_files.append(("output.txt", text_file, vault_res))
 
+        # Generate manifest.json indexing all extracted files
+        manifest = {
+            "task_id": task_id,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "prompt": prompt,
+            "total_files": len(saved_files),
+            "files": [
+                {
+                    "filename": f[0],
+                    "size_bytes": os.path.getsize(f[1]) if os.path.exists(f[1]) else 0,
+                    "vault_status": f[2]
+                }
+                for f in saved_files
+            ]
+        }
+        manifest_path = os.path.join(task_dir, "manifest.json")
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, indent=2)
+        self.upload_to_i7_vault(manifest_path, task_id)
+        saved_files.append(("manifest.json", manifest_path, "manifest_created"))
+
         return saved_files
 
     def execute_task(self, task: dict):
@@ -1128,19 +1203,22 @@ class DGXStandaloneAgent:
 
         task_id = task.get("task_id", f"tsk_{int(time.time())}")
         prompt = task.get("prompt", "")
+        model_name = task.get("model") or self.default_model
+        num_ctx = int(task.get("num_ctx") or self.default_num_ctx)
         self.current_task_id = task_id
 
         print("\n" + "=" * 65)
         print(f"[{self.node_id}] REVERSE HEARTBEAT TASK RECEIVED: {task_id}")
         print(f"Prompt: {prompt}")
+        print(f"Model: {model_name} | Context: {num_ctx:,} tokens")
         print("=" * 65)
 
         if self.hud:
             self.hud.update_status("BUSY", task_title=prompt)
-            self.hud.append_log(f"\n>>> [TASK {task_id}] Received from Gateway:\nPrompt: {prompt}\n", "purple")
+            self.hud.append_log(f"\n>>> [TASK {task_id}] Model: {model_name} (Ctx: {num_ctx:,})\nPrompt: {prompt}\n", "purple")
 
-        # 1. Run inference on local GPU with hidden autonomous directive
-        stdout_log = self.execute_ollama_query(prompt)
+        # 1. Run inference on local GPU with high context window
+        stdout_log = self.execute_ollama_query(prompt, model_name=model_name, num_ctx=num_ctx)
 
         # 2. Extract all code files and silently auto-vault them to the Central PC Vault
         vaulted_records = self.extract_and_vault_files(stdout_log, prompt, task_id)
@@ -1291,7 +1369,8 @@ if __name__ == "__main__":
     parser.add_argument("--id", default="dgx-node-1", help="Node ID (e.g., dgx-node-1)")
     parser.add_argument("--gateway", default="https://raspberrypi.tailc8c1f6.ts.net", help="Raspberry Pi Tailscale Gateway")
     parser.add_argument("--storage", default="https://labg418pc12.tailc8c1f6.ts.net:8443", help="AEGIS PC Vault URL")
-    parser.add_argument("--model", default="deepseek-coder-v2:16b", help="Local Ollama model name")
+    parser.add_argument("--model", default=os.environ.get("AEGIS_MODEL", "qwen2.5-coder:32b"), help="Local Ollama model name (e.g. qwen2.5-coder:32b, llama3.3:70b)")
+    parser.add_argument("--ctx", type=int, default=int(os.environ.get("AEGIS_NUM_CTX", "65536")), help="Context window token limit (default: 65536, up to 131072)")
     parser.add_argument("--interval", type=float, default=6.0, help="Heartbeat interval in seconds")
     parser.add_argument("--no-hud", action="store_true", help="Disable desktop screen overlay HUD")
     args = parser.parse_args()
@@ -1301,6 +1380,7 @@ if __name__ == "__main__":
         gateway_url=args.gateway,
         storage_url=args.storage,
         default_model=args.model,
+        default_num_ctx=args.ctx,
         poll_interval=args.interval,
         show_hud=not args.no_hud
     )
