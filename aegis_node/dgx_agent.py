@@ -33,7 +33,7 @@ except ImportError:
     HAS_TK = False
 
 class OverlayHUD:
-    """Floating minimalist head-up-display: Circular transparent logo orb that animates into full studio console."""
+    """Floating tactile Claymorphic HUD: 3D inflated clay orb that spring-animates into rounded clay console."""
     def __init__(self, node_id: str = "dgx-node-1", node_name: str = "DGX Spark 01"):
         self.node_id = node_id
         self.node_name = node_name
@@ -44,7 +44,7 @@ class OverlayHUD:
         self.current_status = "ONLINE"
         self.pulse_phase = False
 
-        self.circle_size = 56
+        self.circle_size = 62
         self.full_width = 460
         self.full_height = 310
         self.pos_y = 24
@@ -63,9 +63,8 @@ class OverlayHUD:
             self.root.overrideredirect(True) # Borderless floating window
             self.root.attributes("-topmost", True) # Always on top
 
-            # Semi-transparent window background
             try:
-                self.root.attributes("-alpha", 0.94)
+                self.root.attributes("-alpha", 0.95)
             except Exception:
                 pass
 
@@ -73,103 +72,130 @@ class OverlayHUD:
             pos_x_mini = self.screen_width - self.circle_size - 24
             self.root.geometry(f"{self.circle_size}x{self.circle_size}+{pos_x_mini}+{self.pos_y}")
 
-            # Minimalist Modern Studio Palette (Obsidian & Charcoal)
-            bg_dark = "#18181b"       # Neutral obsidian matte
-            card_bg = "#27272a"       # Clean dark slate
-            border_subtle = "#3f3f46" # 1px hairline border
-            text_primary = "#f4f4f5"  # Crisp off-white
-            text_muted = "#a1a1aa"    # Neutral slate secondary
-            code_bg = "#09090b"       # Matte editor dark
-            code_fg = "#e4e4e7"       # Editor clean gray-white
+            # Tactile Claymorphism Palette (Smooth dark clay / rounded slate)
+            bg_clay = "#222630"        # Pliable dark clay base
+            card_clay = "#2b313e"      # Inflated clay card surface
+            highlight_clay = "#3d4659" # Top-left specular dome highlight
+            shadow_clay = "#121419"    # Soft ambient clay shadow
+            border_clay = "#343c4d"    # Pillowy clay border rim
+            recessed_tray = "#101217"  # Deep carved code tray
+            text_clay = "#f1f5f9"      # Stamped clean off-white
+            text_muted = "#94a3b8"     # Soft slate subtext
 
-            self.root.configure(bg=bg_dark)
+            self.root.configure(bg=bg_clay)
 
-            # Outer border container
-            self.main_container = tk.Frame(self.root, bg=bg_dark, highlightbackground=border_subtle, highlightthickness=1)
+            # Outer inflated clay border container
+            self.main_container = tk.Frame(self.root, bg=bg_clay, highlightbackground=highlight_clay, highlightthickness=2)
             self.main_container.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
             # ========================================================
-            # 1. CIRCULAR TRANSPARENT LOGO ORB (Idle State)
+            # 1. 3D CLAYMORPHIC ORB (Idle State)
             # ========================================================
             self.circle_canvas = tk.Canvas(
                 self.main_container,
                 width=self.circle_size,
                 height=self.circle_size,
-                bg=bg_dark,
+                bg=bg_clay,
                 highlightthickness=0,
                 cursor="hand2"
             )
             self.circle_canvas.pack(fill=tk.BOTH, expand=True)
 
-            # Minimalist circular emblem
-            self.orb_outer = self.circle_canvas.create_oval(3, 3, 51, 51, fill="#24242b", outline="#3f3f46", width=1.5)
-            self.orb_ring = self.circle_canvas.create_oval(7, 7, 47, 47, outline="#10b981", width=1.2)
-            self.orb_text = self.circle_canvas.create_text(27, 26, text="⬡", fill="#ffffff", font=("Helvetica", 15, "bold"))
-            self.orb_pip = self.circle_canvas.create_oval(36, 36, 46, 46, fill="#10b981", outline="#18181b", width=1.5)
+            # 3D Layered Clay Shading:
+            # 1. Soft drop shadow
+            self.circle_canvas.create_oval(4, 7, 58, 61, fill=shadow_clay, outline="")
+            # 2. Main clay body
+            self.orb_body = self.circle_canvas.create_oval(3, 3, 57, 57, fill=card_clay, outline=border_clay, width=1.5)
+            # 3. Top-left soft specular dome highlight (inflated 3D dome look)
+            self.circle_canvas.create_oval(5, 5, 55, 41, fill=highlight_clay, outline="")
+            self.circle_canvas.create_oval(6, 8, 54, 55, fill=card_clay, outline="")
+            # 4. Specular gleam
+            self.circle_canvas.create_oval(14, 8, 27, 16, fill="#4a556b", outline="")
+            # 5. Stamped 3D debossed emblem
+            self.circle_canvas.create_text(31, 31, text="⬡", fill=shadow_clay, font=("Helvetica", 16, "bold"))
+            self.circle_canvas.create_text(30, 30, text="⬡", fill=text_clay, font=("Helvetica", 16, "bold"))
+            # 6. Embedded 3D tactile status gem (pip)
+            self.orb_pip_shadow = self.circle_canvas.create_oval(40, 40, 52, 52, fill=shadow_clay, outline="")
+            self.orb_pip = self.circle_canvas.create_oval(39, 39, 51, 51, fill="#10b981", outline="#34d399", width=1)
 
-            # Click circular logo to expand
+            # Click circular clay orb to spring-expand
             self.circle_canvas.bind("<Button-1>", lambda e: self.start_animation(True))
 
             # ========================================================
-            # 2. FULL CONSOLE HUD (Expanded State)
+            # 2. 3D CLAY TABLET CONSOLE (Expanded State)
             # ========================================================
-            self.full_frame = tk.Frame(self.main_container, bg=bg_dark)
+            self.full_frame = tk.Frame(self.main_container, bg=bg_clay)
 
-            # Header
-            hdr = tk.Frame(self.full_frame, bg=card_bg, height=34)
+            # Embossed Clay Header
+            hdr = tk.Frame(self.full_frame, bg=card_clay, height=36)
             hdr.pack(fill=tk.X, padx=0, pady=0)
 
-            self.status_dot = tk.Label(hdr, text="●", fg="#10b981", bg=card_bg, font=("Helvetica", 10))
-            self.status_dot.pack(side=tk.LEFT, padx=(10, 4))
+            self.status_dot = tk.Label(hdr, text="●", fg="#10b981", bg=card_clay, font=("Helvetica", 10))
+            self.status_dot.pack(side=tk.LEFT, padx=(12, 4))
 
-            title_lbl = tk.Label(hdr, text=f"AEGIS Studio  •  {self.node_name}", fg=text_primary, bg=card_bg, font=("Helvetica", 9, "bold"))
+            title_lbl = tk.Label(hdr, text=f"AEGIS Studio  •  {self.node_name}", fg=text_clay, bg=card_clay, font=("Helvetica", 9, "bold"))
             title_lbl.pack(side=tk.LEFT)
 
-            # Minimal collapse button [ — ]
-            collapse_btn = tk.Label(hdr, text="—", fg=text_muted, bg=card_bg, cursor="hand2", font=("Helvetica", 10, "bold"))
+            # Tactile Pill Button for collapse [ — ]
+            collapse_btn = tk.Label(
+                hdr,
+                text=" — ",
+                fg=text_muted,
+                bg="#1d212a",
+                cursor="hand2",
+                font=("Helvetica", 9, "bold"),
+                padx=6,
+                pady=1,
+                relief="flat"
+            )
             collapse_btn.pack(side=tk.RIGHT, padx=(4, 10))
             collapse_btn.bind("<Button-1>", lambda e: self.start_animation(False))
 
-            self.status_lbl = tk.Label(hdr, text="ONLINE", fg="#10b981", bg=card_bg, font=("Helvetica", 8, "bold"))
-            self.status_lbl.pack(side=tk.RIGHT, padx=4)
+            self.status_lbl = tk.Label(hdr, text="ONLINE", fg="#10b981", bg=card_clay, font=("Helvetica", 8, "bold"))
+            self.status_lbl.pack(side=tk.RIGHT, padx=6)
 
             # Body Container
-            body = tk.Frame(self.full_frame, bg=bg_dark)
+            body = tk.Frame(self.full_frame, bg=bg_clay)
             body.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
 
-            # Telemetry Bar
+            # Recessed Clay Trough for Telemetry
+            telem_box = tk.Frame(body, bg="#171a22", highlightbackground="#282e3c", highlightthickness=1)
+            telem_box.pack(fill=tk.X, padx=0, pady=(0, 4))
+
             self.telem_lbl = tk.Label(
-                body,
+                telem_box,
                 text="GPU 0%  •  VRAM 0.0/128 GB  •  35°C",
                 fg=text_muted,
-                bg=bg_dark,
-                font=("Consolas", 8)
+                bg="#171a22",
+                font=("Consolas", 8),
+                pady=2
             )
-            self.telem_lbl.pack(anchor="w", padx=2, pady=(0, 2))
+            self.telem_lbl.pack(anchor="w", padx=6)
 
             # Task info
             self.task_lbl = tk.Label(
                 body,
-                text="Idle • Ready for tasks",
-                fg="#71717a",
-                bg=bg_dark,
+                text="Idle • Ready for assignments",
+                fg="#717a8a",
+                bg=bg_clay,
                 font=("Helvetica", 8),
                 wraplength=440,
                 justify="left"
             )
-            self.task_lbl.pack(anchor="w", padx=2, pady=(0, 6))
+            self.task_lbl.pack(anchor="w", padx=2, pady=(0, 4))
 
-            # Terminal log display area
+            # Recessed Deep Slate Code Console
             self.log_text = tk.Text(
                 body,
-                bg=code_bg,
-                fg=code_fg,
-                insertbackground="#f4f4f5",
+                bg=recessed_tray,
+                fg="#e2e8f0",
+                insertbackground="#f1f5f9",
                 font=("Consolas", 8),
                 height=11,
                 wrap="char",
                 borderwidth=0,
-                highlightthickness=0
+                highlightthickness=1,
+                highlightbackground="#262c38"
             )
             self.log_text.pack(fill=tk.BOTH, expand=True)
             self.log_text.insert(tk.END, "AEGIS Autonomous Agent Online.\nConnected via Reverse-Heartbeat to Gateway.\n")
@@ -200,7 +226,7 @@ class OverlayHUD:
             self.root.geometry(f"+{x}+{y}")
 
     def _pulse_loop(self):
-        """Gentle breathing animation for the circular logo orb when idle."""
+        """Tactile gentle pulse on the 3D clay bead status pip."""
         if not self.root:
             return
         if not self.is_expanded and not self.is_animating:
@@ -208,7 +234,6 @@ class OverlayHUD:
             base_col = "#10b981" if self.current_status in ["ONLINE", "READY"] else "#f59e0b"
             dim_col = "#047857" if self.current_status in ["ONLINE", "READY"] else "#b45309"
             cur = base_col if self.pulse_phase else dim_col
-            self.circle_canvas.itemconfig(self.orb_ring, outline=cur)
             self.circle_canvas.itemconfig(self.orb_pip, fill=cur)
         self.root.after(1200, self._pulse_loop)
 
@@ -219,7 +244,7 @@ class OverlayHUD:
         self.log_queue.put(("expand", expand))
 
     def start_animation(self, target_expanded: bool):
-        """Smooth animated cubic-ease transition between circular logo and full HUD."""
+        """Claymorphic spring-elastic expansion / minimization."""
         if self.is_animating or self.is_expanded == target_expanded:
             return
 
@@ -237,7 +262,7 @@ class OverlayHUD:
             start_w, start_h = self.full_width, self.full_height
             end_w, end_h = self.circle_size, self.circle_size
 
-        self._step_animation(1, 14, start_w, end_w, start_h, end_h)
+        self._step_animation(1, 15, start_w, end_w, start_h, end_h)
 
     def _step_animation(self, step, total_steps, start_w, end_w, start_h, end_h):
         if not self.root:
@@ -245,8 +270,11 @@ class OverlayHUD:
             return
 
         t = step / float(total_steps)
-        # Cubic ease-out formula
-        ease = 1.0 - math.pow(1.0 - t, 3)
+        # Clay spring damped oscillation (soft tactile squish & settle)
+        if step == total_steps:
+            ease = 1.0
+        else:
+            ease = 1.0 - math.exp(-5.5 * t) * math.cos(3.8 * t)
 
         w = int(start_w + (end_w - start_w) * ease)
         h = int(start_h + (end_h - start_h) * ease)
@@ -261,7 +289,7 @@ class OverlayHUD:
         else:
             self.is_expanded = self.target_expanded
             self.is_animating = False
-            border = "#f59e0b" if self.current_status == "BUSY" else "#3f3f46"
+            border = "#f59e0b" if self.current_status == "BUSY" else "#3d4659"
             self.main_container.configure(highlightbackground=border)
 
     def _auto_collapse_if_idle(self):
