@@ -3,7 +3,10 @@ Raspberry Pi Gateway exposed via Tailscale Funnel (https://raspberrypi.tailc8c1f
 DGX nodes poll outbound via HTTPS heartbeats; pending tasks are delivered in heartbeat responses.
 Zero inbound ports required on student / compute nodes.
 """
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+import os
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
@@ -73,8 +76,16 @@ def create_app(state_mgr: StateManager, orchestrator: Orchestrator, safety: Safe
         vault_status: Optional[str] = None
         drive_status: Optional[str] = None
 
+    DASHBOARD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "aegis_server", "dashboard"))
+
     @app.get("/")
-    def root():
+    def root(request: Request):
+        accept = request.headers.get("accept", "")
+        # If accessed from a web browser, serve the live dashboard
+        if "text/html" in accept:
+            index_path = os.path.join(DASHBOARD_DIR, "index.html")
+            if os.path.exists(index_path):
+                return FileResponse(index_path)
         return {
             "system": "AEGIS Central Gateway",
             "gateway": "https://raspberrypi.tailc8c1f6.ts.net",
@@ -350,6 +361,9 @@ def create_app(state_mgr: StateManager, orchestrator: Orchestrator, safety: Safe
         except WebSocketDisconnect:
             if websocket in active_ws_connections:
                 active_ws_connections.remove(websocket)
+
+    if os.path.exists(DASHBOARD_DIR):
+        app.mount("/", StaticFiles(directory=DASHBOARD_DIR, html=False), name="dashboard_static")
 
     return app
 

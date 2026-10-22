@@ -115,6 +115,29 @@ def get_vault_overview():
         overview[nid] = {"file_count": fcount, "vault_status": "active"}
     return {"vault_root": VAULT_ROOT, "nodes": overview}
 
+@app.get("/api/storage/recent")
+def get_recent_artifacts(limit: int = 20):
+    """Returns recent files uploaded to the vault across all nodes."""
+    recent = []
+    for root, dirs, files in os.walk(VAULT_ROOT):
+        for f in files:
+            full_path = os.path.join(root, f)
+            rel_path = os.path.relpath(full_path, VAULT_ROOT).replace("\\", "/")
+            parts = rel_path.split("/")
+            if len(parts) >= 4 and parts[1] == "outputs":
+                node_id, stage, task_id, filename = parts[0], parts[1], parts[2], parts[3]
+                stat = os.stat(full_path)
+                recent.append({
+                    "node_id": node_id,
+                    "task_id": task_id,
+                    "filename": filename,
+                    "size_bytes": stat.st_size,
+                    "modified_at": stat.st_mtime,
+                    "url": f"/api/storage/{node_id}/download/{task_id}/{filename}?stage=outputs"
+                })
+    recent.sort(key=lambda x: x["modified_at"], reverse=True)
+    return {"recent_artifacts": recent[:limit]}
+
 @app.get("/setup")
 @app.get("/setup.sh")
 @app.get("/dgx_setup.sh")

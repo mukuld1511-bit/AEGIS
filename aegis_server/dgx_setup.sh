@@ -44,11 +44,20 @@ echo "[3/4] Pulling ${MODEL_NAME} on local GPU (Blackwell 128GB)..."
 ollama pull "${MODEL_NAME}"
 echo "[✓] Model ready: ${MODEL_NAME}"
 
-# 4. Configure auto-restart systemd service with Physical Screen HUD (:0)
+# 4. Configure auto-restart systemd service with Physical Screen HUD
 echo "[4/4] Activating background daemon with screen overlay HUD (aegis-dgx.service)..."
 sudo apt-get update -y > /dev/null 2>&1 || true
-sudo apt-get install -y python3-tk > /dev/null 2>&1 || true
+sudo apt-get install -y python3-pyqt5 python3-tk > /dev/null 2>&1 || pip3 install PyQt5 || true
 xhost +local: > /dev/null 2>&1 || true
+
+ACTIVE_DISP="${DISPLAY:-}"
+if [ -z "$ACTIVE_DISP" ]; then
+    if [ -e "/tmp/.X11-unix/X1" ]; then
+        ACTIVE_DISP=":1"
+    else
+        ACTIVE_DISP=":0"
+    fi
+fi
 
 SERVICE_FILE="/etc/systemd/system/aegis-dgx.service"
 
@@ -61,7 +70,7 @@ After=network.target graphical.target
 Type=simple
 User=${USER}
 WorkingDirectory=${HOME}
-Environment=DISPLAY=:0
+Environment=DISPLAY=${ACTIVE_DISP}
 Environment=XAUTHORITY=${HOME}/.Xauthority
 ExecStart=/usr/bin/python3 ${HOME}/dgx_agent.py --id ${NODE_ID} --gateway ${GATEWAY_URL} --storage ${STORAGE_URL} --model ${MODEL_NAME}
 Restart=always
@@ -73,6 +82,7 @@ EOF"
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now aegis-dgx.service
+loginctl enable-linger ${USER} > /dev/null 2>&1 || true
 
 
 echo ""

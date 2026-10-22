@@ -25,12 +25,367 @@ import urllib.error
 import urllib.parse
 from datetime import datetime, timezone
 
-# Optional Tkinter for Desktop HUD
+# Optional GUI Frameworks for Desktop HUD (Prefer PyQt5 for true 32-bit ARGB glassmorphic circular orb; fallback to Tkinter)
+try:
+    from PyQt5 import QtCore, QtGui, QtWidgets
+    from PyQt5.QtCore import Qt, QTimer, QRect, QPoint, QRectF
+    from PyQt5.QtGui import (
+        QPainter, QColor, QPen, QBrush, QFont, QRadialGradient, 
+        QLinearGradient, QPainterPath, QCursor
+    )
+    from PyQt5.QtWidgets import (
+        QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
+        QLabel, QTextEdit, QFrame
+    )
+    HAS_PYQT = True
+except ImportError:
+    HAS_PYQT = False
+
 try:
     import tkinter as tk
     HAS_TK = True
 except ImportError:
     HAS_TK = False
+
+if HAS_PYQT:
+    class PyQtHUDWidget(QWidget):
+        """Native 32-bit ARGB Floating Glassmorphic Animated Atom Orb HUD."""
+        def __init__(self, node_id="dgx-node-1", node_name="DGX Spark 01", shared_queue=None):
+            super().__init__()
+            self.node_id = node_id
+            self.node_name = node_name
+            self.log_queue = shared_queue or queue.Queue()
+            self.is_expanded = False
+            self.is_animating = False
+            self.current_status = "ONLINE"
+            self.atom_phase = 0.0
+            self.pulse_phase = 0.0
+            self.gpu_text = "GPU 0%  •  VRAM 0.0/128 GB  •  35°C"
+            self.task_text = "Idle • Ready for assignments"
+
+            # Dimensions
+            self.mini_size = 92
+            self.full_w = 580
+            self.full_h = 420
+            self.cur_w = self.mini_size
+            self.cur_h = self.mini_size
+
+            # Window properties
+            self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+            self.setAttribute(Qt.WA_TranslucentBackground, True)
+            self.setMouseTracking(True)
+
+            screen = QApplication.primaryScreen().geometry()
+            self.pos_x = screen.width() - self.mini_size - 30
+            self.pos_y = 30
+            self.setGeometry(self.pos_x, self.pos_y, self.cur_w, self.cur_h)
+
+            # Dragging
+            self._drag_active = False
+            self._drag_pos = QPoint()
+
+            # Expanded UI
+            self._init_expanded_ui()
+
+            # Animation timer (60 FPS)
+            self.anim_timer = QTimer(self)
+            self.anim_timer.timeout.connect(self._animation_tick)
+            self.anim_step = 0
+            self.anim_total = 14
+
+            # Orbit rotation & pulse timer (40 FPS)
+            self.orbit_timer = QTimer(self)
+            self.orbit_timer.timeout.connect(self._orbit_tick)
+            self.orbit_timer.start(25)
+
+            # Queue processor timer (30ms)
+            self.q_timer = QTimer(self)
+            self.q_timer.timeout.connect(self._process_queue)
+            self.q_timer.start(30)
+
+        def _init_expanded_ui(self):
+            self.content_widget = QWidget(self)
+            self.content_widget.setGeometry(10, 10, self.full_w - 20, self.full_h - 20)
+            self.content_widget.setVisible(False)
+
+            layout = QVBoxLayout(self.content_widget)
+            layout.setContentsMargins(12, 12, 12, 12)
+            layout.setSpacing(8)
+
+            # Header
+            hdr = QHBoxLayout()
+            self.lbl_title = QLabel(f"⚛  AEGIS Spark  •  {self.node_name}", self.content_widget)
+            self.lbl_title.setStyleSheet("color: #1e1b4b; font-size: 13px; font-weight: bold;")
+            hdr.addWidget(self.lbl_title)
+
+            hdr.addStretch()
+
+            self.lbl_status = QLabel("● ONLINE", self.content_widget)
+            self.lbl_status.setStyleSheet("background: #ede9fe; color: #7c3aed; font-size: 10px; font-weight: bold; border-radius: 8px; padding: 3px 8px;")
+            hdr.addWidget(self.lbl_status)
+
+            self.btn_collapse = QLabel(" — ", self.content_widget)
+            self.btn_collapse.setStyleSheet("background: #f1f5f9; color: #64748b; font-size: 12px; font-weight: bold; border-radius: 6px; padding: 2px 8px; border: 1px solid #e2e8f0;")
+            self.btn_collapse.setCursor(QCursor(Qt.PointingHandCursor))
+            self.btn_collapse.mousePressEvent = lambda e: self.start_animation(False)
+            hdr.addWidget(self.btn_collapse)
+
+            layout.addLayout(hdr)
+
+            # Telemetry Pill
+            self.lbl_telem = QLabel(self.gpu_text, self.content_widget)
+            self.lbl_telem.setStyleSheet("background: #ffffff; color: #334155; font-family: Consolas, monospace; font-size: 11px; border: 1px solid #ddd6fe; border-radius: 6px; padding: 5px 10px;")
+            layout.addWidget(self.lbl_telem)
+
+            # Task Text
+            self.lbl_task = QLabel(self.task_text, self.content_widget)
+            self.lbl_task.setStyleSheet("color: #64748b; font-size: 11px;")
+            layout.addWidget(self.lbl_task)
+
+            # Log Console
+            self.log_console = QTextEdit(self.content_widget)
+            self.log_console.setReadOnly(True)
+            self.log_console.setStyleSheet("background: #ffffff; color: #0f172a; font-family: Consolas, monospace; font-size: 11px; border: 1px solid #ddd6fe; border-radius: 8px; padding: 6px;")
+            layout.addWidget(self.log_console)
+
+        def paintEvent(self, event):
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setRenderHint(QPainter.SmoothPixmapTransform)
+
+            if not self.is_expanded and not self.is_animating:
+                self._paint_circular_orb(painter)
+            else:
+                self._paint_glass_card(painter)
+
+        def _paint_circular_orb(self, painter):
+            w = self.width()
+            h = self.height()
+            cx = w / 2.0
+            cy = h / 2.0
+            r = (self.mini_size - 12) / 2.0
+
+            # 1. Soft Frosted Clay/Glass Orb Background (Translucent light theme)
+            grad = QRadialGradient(cx - r*0.3, cy - r*0.3, r * 1.3)
+            grad.setColorAt(0.0, QColor(255, 255, 255, 235))
+            grad.setColorAt(0.65, QColor(248, 246, 255, 215))
+            grad.setColorAt(1.0, QColor(237, 233, 254, 195))
+
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(grad))
+            painter.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
+
+            # 2. Specular Glass Rim Ring
+            rim_color = QColor(196, 181, 253, 220) if self.current_status == "ONLINE" else QColor(124, 58, 237, 240)
+            painter.setPen(QPen(rim_color, 1.8))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
+
+            # 3. Dynamic 3-Orbit Purple Atom
+            orbits = [-30.0, 30.0, 90.0]
+            orbit_colors = [QColor(139, 92, 246, 190), QColor(147, 51, 234, 190), QColor(124, 58, 237, 200)]
+            a = r * 0.68
+            b = r * 0.28
+
+            for idx, angle_deg in enumerate(orbits):
+                rad = math.radians(angle_deg)
+                cos_a = math.cos(rad)
+                sin_a = math.sin(rad)
+
+                path = QPainterPath()
+                steps = 36
+                for s in range(steps + 1):
+                    t = 2 * math.pi * s / float(steps)
+                    x = cx + a * math.cos(t) * cos_a - b * math.sin(t) * sin_a
+                    y = cy + a * math.cos(t) * sin_a + b * math.sin(t) * cos_a
+                    if s == 0:
+                        path.moveTo(x, y)
+                    else:
+                        path.lineTo(x, y)
+
+                painter.setPen(QPen(orbit_colors[idx], 1.4))
+                painter.setBrush(Qt.NoBrush)
+                painter.drawPath(path)
+
+                # Revolving electron dot on each orbit
+                e_t = self.atom_phase + (idx * (2 * math.pi / 3.0))
+                ex = cx + a * math.cos(e_t) * cos_a - b * math.sin(e_t) * sin_a
+                ey = cy + a * math.cos(e_t) * sin_a + b * math.sin(e_t) * cos_a
+
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(QBrush(QColor(192, 132, 252, 255)))
+                painter.drawEllipse(QRectF(ex - 2.8, ey - 2.8, 5.6, 5.6))
+                painter.setBrush(QBrush(QColor(255, 255, 255, 255)))
+                painter.drawEllipse(QRectF(ex - 1.2, ey - 1.2, 2.4, 2.4))
+
+            # 4. Central Glowing Violet Nucleus
+            nuc_grad = QRadialGradient(cx, cy, 7.0)
+            nuc_grad.setColorAt(0.0, QColor(255, 255, 255, 255))
+            nuc_grad.setColorAt(0.4, QColor(167, 139, 250, 240))
+            nuc_grad.setColorAt(0.8, QColor(124, 58, 237, 220))
+            nuc_grad.setColorAt(1.0, QColor(109, 40, 217, 0))
+
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(nuc_grad))
+            painter.drawEllipse(QRectF(cx - 7.0, cy - 7.0, 14.0, 14.0))
+
+            # 5. Pulsing Status Pip
+            pulse_alpha = int(180 + 75 * math.sin(self.pulse_phase))
+            status_col = QColor(16, 185, 129, pulse_alpha) if self.current_status == "ONLINE" else QColor(124, 58, 237, pulse_alpha)
+            pip_y = cy + r - 3.5
+            painter.setBrush(QBrush(status_col))
+            painter.drawEllipse(QRectF(cx - 3.5, pip_y, 7.0, 7.0))
+
+        def _paint_glass_card(self, painter):
+            w = float(self.width())
+            h = float(self.height())
+            rect = QRectF(4, 4, w - 8, h - 8)
+
+            # Translucent Frosted Glass Card
+            grad = QLinearGradient(0, 0, 0, h)
+            grad.setColorAt(0.0, QColor(255, 255, 255, 240))
+            grad.setColorAt(1.0, QColor(248, 246, 255, 230))
+
+            border_col = QColor(196, 181, 253, 230) if self.current_status == "ONLINE" else QColor(124, 58, 237, 240)
+            painter.setPen(QPen(border_col, 1.5))
+            painter.setBrush(QBrush(grad))
+            painter.drawRoundedRect(rect, 20.0, 20.0)
+
+        def _orbit_tick(self):
+            speed = 0.08 if self.current_status in ["BUSY", "COMPUTING"] else 0.04
+            self.atom_phase = (self.atom_phase + speed) % (2 * math.pi)
+            self.pulse_phase = (self.pulse_phase + 0.07) % (2 * math.pi)
+            self.update()
+
+        def start_animation(self, target_expanded: bool):
+            if self.is_animating or self.is_expanded == target_expanded:
+                return
+            self.is_animating = True
+            self.target_expanded = target_expanded
+            self.anim_step = 0
+
+            if target_expanded:
+                self.content_widget.setVisible(False)
+                self.start_w, self.start_h = self.mini_size, self.mini_size
+                self.end_w, self.end_h = self.full_w, self.full_h
+            else:
+                self.content_widget.setVisible(False)
+                self.start_w, self.start_h = self.full_w, self.full_h
+                self.end_w, self.end_h = self.mini_size, self.mini_size
+
+            self.anim_timer.start(16)
+
+        def _animation_tick(self):
+            self.anim_step += 1
+            t = self.anim_step / float(self.anim_total)
+            ease = 1.0 - math.pow(1.0 - t, 3)
+
+            self.cur_w = int(self.start_w + (self.end_w - self.start_w) * ease)
+            self.cur_h = int(self.start_h + (self.end_h - self.start_h) * ease)
+
+            screen = QApplication.primaryScreen().geometry()
+            pos_x = min(self.x(), screen.width() - self.cur_w - 20)
+            self.setGeometry(pos_x, self.y(), self.cur_w, self.cur_h)
+
+            if self.anim_step >= self.anim_total:
+                self.anim_timer.stop()
+                self.is_animating = False
+                self.is_expanded = self.target_expanded
+                if self.is_expanded:
+                    self.content_widget.setGeometry(10, 10, self.cur_w - 20, self.cur_h - 20)
+                    self.content_widget.setVisible(True)
+                self.update()
+
+        def mousePressEvent(self, event):
+            if event.button() == Qt.LeftButton:
+                self._drag_active = True
+                self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
+                event.accept()
+
+        def mouseMoveEvent(self, event):
+            if self._drag_active and (event.buttons() & Qt.LeftButton):
+                self.move(event.globalPos() - self._drag_pos)
+                event.accept()
+
+        def mouseReleaseEvent(self, event):
+            if self._drag_active and event.button() == Qt.LeftButton:
+                self._drag_active = False
+                if not self.is_expanded and not self.is_animating:
+                    self.start_animation(True)
+                event.accept()
+
+        def _process_queue(self):
+            while not self.log_queue.empty():
+                kind, data = self.log_queue.get_nowait()
+                if kind == "expand":
+                    self.start_animation(data)
+                elif kind == "toggle":
+                    self.start_animation(not self.is_expanded)
+                elif kind == "log":
+                    text, tag = data if isinstance(data, tuple) else (str(data), "")
+                    self.log_console.append(text)
+                    if not self.is_expanded and not self.is_animating:
+                        self.start_animation(True)
+                elif kind == "status":
+                    status, title = data
+                    self.current_status = status
+                    self.lbl_status.setText(f"● {status}")
+                    if status in ["BUSY", "COMPUTING"]:
+                        self.lbl_status.setStyleSheet("background: #fdf2f8; color: #db2777; font-size: 10px; font-weight: bold; border-radius: 8px; padding: 3px 8px;")
+                        if not self.is_expanded and not self.is_animating:
+                            self.start_animation(True)
+                    else:
+                        self.lbl_status.setStyleSheet("background: #ede9fe; color: #7c3aed; font-size: 10px; font-weight: bold; border-radius: 8px; padding: 3px 8px;")
+                    if title:
+                        self.task_text = title
+                        self.lbl_task.setText(title)
+                elif kind == "telemetry":
+                    self.gpu_text = data
+                    self.lbl_telem.setText(data)
+
+    class PyQtOverlayHUD:
+        """Controller wrapper for PyQtHUDWidget."""
+        def __init__(self, node_id: str = "dgx-node-1", node_name: str = "DGX Spark 01"):
+            self.node_id = node_id
+            self.node_name = node_name
+            self.widget = None
+            self.log_queue = queue.Queue()
+
+        def start_hud_thread(self):
+            t = threading.Thread(target=self._run_qt, daemon=True)
+            t.start()
+
+        def _run_qt(self):
+            try:
+                app = QApplication.instance()
+                if not app:
+                    app = QApplication([sys.argv[0]])
+                self.widget = PyQtHUDWidget(node_id=self.node_id, node_name=self.node_name, shared_queue=self.log_queue)
+                self.widget.show()
+                app.exec_()
+            except Exception as e:
+                print(f"[!] PyQt HUD exception: {e}")
+
+        def append_log(self, text: str, tag: str = ""):
+            self.log_queue.put(("log", (text, tag)))
+
+        def update_status(self, status: str, task_title: str = ""):
+            self.log_queue.put(("status", (status, task_title)))
+
+        def update_telemetry(self, gpu_text: str):
+            self.log_queue.put(("telemetry", gpu_text))
+
+        def show_warning(self, msg: str):
+            self.log_queue.put(("warning", msg))
+
+        def set_locked(self, locked: bool, reason: str = ""):
+            self.log_queue.put(("locked", (locked, reason)))
+
+        def set_expanded(self, expand: bool):
+            self.log_queue.put(("expand", expand))
+
+        def toggle_expand(self):
+            self.log_queue.put(("toggle", None))
 
 class OverlayHUD:
     """Crash-proof Transparent Glassmorphic HUD with glowing Purple Atom Motif:
@@ -521,13 +876,26 @@ class DGXStandaloneAgent:
         os.makedirs("./workspace", exist_ok=True)
 
         self.hud = None
-        if self.show_hud and HAS_TK:
+        if self.show_hud:
             try:
                 if "DISPLAY" not in os.environ and sys.platform != "win32":
-                    os.environ["DISPLAY"] = ":0"
-                self.hud = OverlayHUD(node_id=self.node_id, node_name=f"DGX Spark {self.node_id}")
-                self.hud.start_hud_thread()
-                print(f"[✓] Floating Screen Overlay HUD activated on DISPLAY {os.environ.get('DISPLAY', ':0')}")
+                    for disp in [":0", ":1"]:
+                        if os.path.exists(f"/tmp/.X11-unix/X{disp.replace(':', '')}"):
+                            os.environ["DISPLAY"] = disp
+                            break
+                    if "DISPLAY" not in os.environ:
+                        os.environ["DISPLAY"] = ":0"
+
+                if HAS_PYQT:
+                    self.hud = PyQtOverlayHUD(node_id=self.node_id, node_name=f"DGX Spark {self.node_id}")
+                    self.hud.start_hud_thread()
+                    print(f"[✓] PyQt5 Translucent Animated Orb HUD activated on DISPLAY {os.environ.get('DISPLAY', ':0')}")
+                elif HAS_TK:
+                    self.hud = OverlayHUD(node_id=self.node_id, node_name=f"DGX Spark {self.node_id}")
+                    self.hud.start_hud_thread()
+                    print(f"[✓] Tkinter Glass HUD activated on DISPLAY {os.environ.get('DISPLAY', ':0')}")
+                else:
+                    print("[!] No GUI library available for HUD. Run 'sudo apt-get install python3-pyqt5' or 'pip install PyQt5'.")
             except Exception as e:
                 print(f"[!] Floating HUD note: {e}")
 

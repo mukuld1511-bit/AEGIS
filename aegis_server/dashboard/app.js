@@ -8,6 +8,8 @@ const API_BASE = window.location.origin;
 const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 // Connect to Coordinator on port 9000
 const WS_URL = `${WS_PROTOCOL}//${window.location.hostname}:9000/ws/cluster`;
+// Connect to Storage Vault on port 9080
+const STORAGE_BASE = window.location.port === '9080' ? '' : `${window.location.protocol}//${window.location.hostname}:9080`;
 
 // DOM Elements
 const cmdInput = document.getElementById('cmd-input-field');
@@ -449,10 +451,10 @@ document.querySelectorAll('.filter-pill').forEach(pill => {
   });
 });
 
-// Refresh Artifacts Button
-btnRefreshArtifacts.addEventListener('click', async () => {
+// Load Recent Artifacts from Storage Vault
+async function loadRecentArtifacts() {
   try {
-    const res = await fetch('/api/storage/recent');
+    const res = await fetch(`${STORAGE_BASE}/api/storage/recent`);
     if (res.ok) {
       const data = await res.json();
       if (data.recent_artifacts && data.recent_artifacts.length) {
@@ -460,12 +462,13 @@ btnRefreshArtifacts.addEventListener('click', async () => {
         data.recent_artifacts.forEach(item => {
           const row = document.createElement('div');
           row.className = 'artifact-row';
+          const dlUrl = item.url.startsWith('http') ? item.url : `${STORAGE_BASE}${item.url}`;
           row.innerHTML = `
             <div class="artifact-info">
               <span class="artifact-fname">📄 ${item.filename}</span>
-              <span class="artifact-fmeta">${(item.size_bytes / 1024).toFixed(1)} KB &bull; Task: ${item.task_id}</span>
+              <span class="artifact-fmeta">${(item.size_bytes / 1024).toFixed(1)} KB &bull; Node: ${item.node_id} &bull; Task: ${item.task_id}</span>
             </div>
-            <a href="${item.url}" target="_blank" class="artifact-dl-btn">Download</a>
+            <a href="${dlUrl}" target="_blank" class="artifact-dl-btn">Download</a>
           `;
           artifactsList.appendChild(row);
         });
@@ -473,9 +476,14 @@ btnRefreshArtifacts.addEventListener('click', async () => {
       }
     }
   } catch (e) {
-    // If storage server not queried over http
+    console.warn('Storage recent fetch error:', e);
   }
-  appendTerminal('[STORAGE] Checked i7-14700 vault directory.', 'term-dim');
+}
+
+// Refresh Artifacts Button
+btnRefreshArtifacts.addEventListener('click', async () => {
+  await loadRecentArtifacts();
+  appendTerminal('[STORAGE] Refreshed artifacts from i7-14700 vault.', 'term-dim');
 });
 
 // Initialize on Load
@@ -483,4 +491,5 @@ document.addEventListener('DOMContentLoaded', () => {
   renderNodesGrid();
   updateStats();
   initWebSocket();
+  loadRecentArtifacts();
 });
