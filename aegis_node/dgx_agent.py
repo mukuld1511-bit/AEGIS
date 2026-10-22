@@ -346,12 +346,17 @@ if HAS_PYQT:
                             self.start_animation(True)
                     else:
                         self.lbl_status.setStyleSheet("background: #ede9fe; color: #7c3aed; font-size: 10px; font-weight: bold; border-radius: 8px; padding: 3px 8px;")
+                        QTimer.singleShot(4000, self._auto_collapse_if_idle)
                     if title:
                         self.task_text = title
                         self.lbl_task.setText(title)
                 elif kind == "telemetry":
                     self.gpu_text = data
                     self.lbl_telem.setText(data)
+
+        def _auto_collapse_if_idle(self):
+            if self.current_status in ["ONLINE", "READY"] and self.is_expanded and not self.is_animating:
+                self.start_animation(False)
 
     class PyQtOverlayHUD:
         """Controller wrapper for PyQtHUDWidget."""
@@ -1245,7 +1250,8 @@ class DGXStandaloneAgent:
         if self.hud:
             status_text = "LOCKED" if self.is_locked else "ONLINE"
             self.hud.update_status(status_text, task_title="Idle")
-            self.hud.append_log(f"[Task {task_id} Complete - Ready for next heartbeat]\n", "green")
+            self.hud.append_log(f"\n[✓ Task {task_id} Complete - Auto-minimizing to orb in 4s...]\n", "green")
+            threading.Timer(4.0, lambda: self.hud.set_expanded(False)).start()
         print(f"[{self.node_id}] Ready for next reverse heartbeat.\n")
 
     def handle_command(self, cmd: dict):
