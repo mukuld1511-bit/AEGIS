@@ -44,29 +44,36 @@ echo "[3/4] Pulling ${MODEL_NAME} on local GPU (Blackwell 128GB)..."
 ollama pull "${MODEL_NAME}"
 echo "[✓] Model ready: ${MODEL_NAME}"
 
-# 4. Configure auto-restart systemd service
-echo "[4/4] Activating background daemon (aegis-dgx.service)..."
+# 4. Configure auto-restart systemd service with Physical Screen HUD (:0)
+echo "[4/4] Activating background daemon with screen overlay HUD (aegis-dgx.service)..."
+sudo apt-get update -y > /dev/null 2>&1 || true
+sudo apt-get install -y python3-tk > /dev/null 2>&1 || true
+xhost +local: > /dev/null 2>&1 || true
+
 SERVICE_FILE="/etc/systemd/system/aegis-dgx.service"
 
 sudo bash -c "cat <<EOF > ${SERVICE_FILE}
 [Unit]
-Description=AEGIS DGX Node Agent (${NODE_ID})
-After=network.target tailscaled.service
+Description=AEGIS DGX Node Agent with Floating Screen HUD (${NODE_ID})
+After=network.target graphical.target
 
 [Service]
 Type=simple
 User=${USER}
 WorkingDirectory=${HOME}
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=${HOME}/.Xauthority
 ExecStart=/usr/bin/python3 ${HOME}/dgx_agent.py --id ${NODE_ID} --gateway ${GATEWAY_URL} --storage ${STORAGE_URL} --model ${MODEL_NAME}
 Restart=always
 RestartSec=5
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=graphical.target
 EOF"
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now aegis-dgx.service
+
 
 echo ""
 echo "======================================================================"
