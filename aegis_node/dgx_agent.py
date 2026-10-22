@@ -75,13 +75,17 @@ if HAS_PYQT:
             self.setAttribute(Qt.WA_TranslucentBackground, True)
             self.setMouseTracking(True)
 
-            screen = QApplication.primaryScreen().geometry()
-            self.pos_x = screen.width() - self.mini_size - 30
-            self.pos_y = 30
+            screen = QApplication.primaryScreen().availableGeometry()
+            self.margin_right = 24
+            self.margin_top = 24
+            self.right_edge = screen.x() + screen.width() - self.margin_right
+            self.pos_x = self.right_edge - self.cur_w
+            self.pos_y = screen.y() + self.margin_top
             self.setGeometry(self.pos_x, self.pos_y, self.cur_w, self.cur_h)
 
             # Dragging
             self._drag_active = False
+            self._user_dragged = False
             self._drag_pos = QPoint()
 
             # Expanded UI
@@ -145,6 +149,7 @@ if HAS_PYQT:
             # Log Console
             self.log_console = QTextEdit(self.content_widget)
             self.log_console.setReadOnly(True)
+            self.log_console.setLineWrapMode(QTextEdit.WidgetWidth)
             self.log_console.setStyleSheet("background: #ffffff; color: #0f172a; font-family: Consolas, monospace; font-size: 11px; border: 1px solid #ddd6fe; border-radius: 8px; padding: 6px;")
             layout.addWidget(self.log_console)
 
@@ -283,8 +288,10 @@ if HAS_PYQT:
             self.cur_w = int(self.start_w + (self.end_w - self.start_w) * ease)
             self.cur_h = int(self.start_h + (self.end_h - self.start_h) * ease)
 
-            screen = QApplication.primaryScreen().geometry()
-            pos_x = min(self.x(), screen.width() - self.cur_w - 20)
+            screen = QApplication.primaryScreen().availableGeometry()
+            if not self._user_dragged:
+                self.right_edge = screen.x() + screen.width() - self.margin_right
+            pos_x = self.right_edge - self.cur_w
             self.setGeometry(pos_x, self.y(), self.cur_w, self.cur_h)
 
             if self.anim_step >= self.anim_total:
@@ -304,7 +311,10 @@ if HAS_PYQT:
 
         def mouseMoveEvent(self, event):
             if self._drag_active and (event.buttons() & Qt.LeftButton):
-                self.move(event.globalPos() - self._drag_pos)
+                new_pos = event.globalPos() - self._drag_pos
+                self.move(new_pos)
+                self.right_edge = new_pos.x() + self.cur_w
+                self._user_dragged = True
                 event.accept()
 
         def mouseReleaseEvent(self, event):
@@ -445,7 +455,7 @@ class OverlayHUD:
                 pass
 
             self.screen_width = self.root.winfo_screenwidth()
-            pos_x_mini = self.screen_width - self.mini_w - 24
+            pos_x_mini = max(24, self.screen_width - self.mini_w - 24)
             self.root.geometry(f"{self.mini_w}x{self.mini_h}+{pos_x_mini}+{self.pos_y}")
 
             # Outer Glass Border Container
@@ -604,7 +614,7 @@ class OverlayHUD:
                 selectforeground="#0f172a",
                 font=("Consolas", 10),
                 height=13,
-                wrap="char",
+                wrap="word",
                 borderwidth=0,
                 highlightthickness=1,
                 highlightbackground="#ddd6fe"
@@ -733,11 +743,9 @@ class OverlayHUD:
 
         w = int(start_w + (end_w - start_w) * ease)
         h = int(start_h + (end_h - start_h) * ease)
-        current_x = self.root.winfo_x()
-        current_y = self.root.winfo_y()
-        pos_x = min(current_x, self.screen_width - w - 16)
+        pos_x = max(24, self.screen_width - w - 24)
 
-        self.root.geometry(f"{w}x{h}+{pos_x}+{current_y}")
+        self.root.geometry(f"{w}x{h}+{pos_x}+{self.pos_y}")
 
         if step < total_steps:
             self.root.after(14, self._step_animation, step + 1, total_steps, start_w, end_w, start_h, end_h)
