@@ -20,6 +20,7 @@ import socket
 import argparse
 import threading
 import subprocess
+import ctypes
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -32,9 +33,100 @@ try:
 except ImportError:
     HAS_TK = False
 
+class X11WindowShaper:
+    """True Circular & Rounded-Rect window mask for X11 on Linux using XShape extension."""
+    def __init__(self):
+        self.available = False
+        try:
+            self.X11 = ctypes.CDLL("libX11.so.6")
+            self.Xext = ctypes.CDLL("libXext.so.6")
+            self.available = True
+        except Exception:
+            try:
+                self.X11 = ctypes.CDLL("libX11.so")
+                self.Xext = ctypes.CDLL("libXext.so")
+                self.available = True
+            except Exception:
+                self.available = False
+
+    def shape_circle(self, x11_window_id: int, diameter: int):
+        if not self.available or not x11_window_id:
+            return False
+        try:
+            display = self.X11.XOpenDisplay(None)
+            if not display:
+                return False
+
+            class XRectangle(ctypes.Structure):
+                _fields_ = [
+                    ("x", ctypes.c_short),
+                    ("y", ctypes.c_short),
+                    ("width", ctypes.c_ushort),
+                    ("height", ctypes.c_ushort)
+                ]
+
+            r = diameter / 2.0
+            rects = []
+            for y in range(diameter):
+                dy = abs(y + 0.5 - r)
+                if dy <= r:
+                    dx = math.sqrt(max(0.0, r * r - dy * dy))
+                    x_start = int(round(r - dx))
+                    x_end = int(round(r + dx))
+                    rects.append(XRectangle(x_start, y, max(1, x_end - x_start), 1))
+
+            rect_array = (XRectangle * len(rects))(*rects)
+            self.Xext.XShapeCombineRectangles(display, x11_window_id, 0, 0, 0, rect_array, len(rects), 0, 0)
+            self.X11.XFlush(display)
+            self.X11.XCloseDisplay(display)
+            return True
+        except Exception:
+            return False
+
+    def reset_shape(self, x11_window_id: int, width: int, height: int, radius: int = 18):
+        if not self.available or not x11_window_id:
+            return False
+        try:
+            display = self.X11.XOpenDisplay(None)
+            if not display:
+                return False
+
+            class XRectangle(ctypes.Structure):
+                _fields_ = [
+                    ("x", ctypes.c_short),
+                    ("y", ctypes.c_short),
+                    ("width", ctypes.c_ushort),
+                    ("height", ctypes.c_ushort)
+                ]
+
+            rects = []
+            for y in range(height):
+                if y < radius:
+                    dy = radius - (y + 0.5)
+                    dx = radius - math.sqrt(max(0.0, radius * radius - dy * dy))
+                    x_start = int(round(dx))
+                    x_end = width - int(round(dx))
+                    rects.append(XRectangle(x_start, y, max(1, x_end - x_start), 1))
+                elif y >= height - radius:
+                    dy = (y + 0.5) - (height - radius)
+                    dx = radius - math.sqrt(max(0.0, radius * radius - dy * dy))
+                    x_start = int(round(dx))
+                    x_end = width - int(round(dx))
+                    rects.append(XRectangle(x_start, y, max(1, x_end - x_start), 1))
+                else:
+                    rects.append(XRectangle(0, y, width, 1))
+
+            rect_array = (XRectangle * len(rects))(*rects)
+            self.Xext.XShapeCombineRectangles(display, x11_window_id, 0, 0, 0, rect_array, len(rects), 0, 0)
+            self.X11.XFlush(display)
+            self.X11.XCloseDisplay(display)
+            return True
+        except Exception:
+            return False
+
 class OverlayHUD:
     """Floating Transparent Glassmorphic HUD with glowing Purple Atom Motif:
-    - Large 3D translucent frosted glass orb (100px) with true transparency.
+    - Large 3D translucent frosted glass orb (100px) with true X11 circular masking.
     - Luminous purple atomic orbitals with rotating electrons & glowing nucleus.
     - Damped spring-elastic expansion into a large, spacious glassmorphic console (620x430).
     - Inset frosted glass panels, glowing telemetry, and real-time code stream.
@@ -44,6 +136,7 @@ class OverlayHUD:
         self.node_name = node_name
         self.log_queue = queue.Queue()
         self.root = None
+        self.shaper = X11WindowShaper()
         self.is_expanded = False
         self.is_animating = False
         self.current_status = "ONLINE"
@@ -71,28 +164,10 @@ class OverlayHUD:
             self.root.overrideredirect(True) # Borderless floating window
             self.root.attributes("-topmost", True) # Always on top
 
-            # Transparent Chroma-Key & Glassmorphic Translucency
-            trans_col = "#000001"
-            self.root.configure(bg=trans_col)
-            try:
-                self.root.wm_attributes("-transparentcolor", trans_col)
-            except Exception:
-                pass
-            try:
-                self.root.attributes("-alpha", 0.88)
-            except Exception:
-                pass
-
-            self.screen_width = self.root.winfo_screenwidth()
-            pos_x_mini = self.screen_width - self.circle_size - 28
-            self.root.geometry(f"{self.circle_size}x{self.circle_size}+{pos_x_mini}+{self.pos_y}")
-
-            # Glassmorphism Color Palette
-            glass_bg = "#f8f7ff"         # Frosted lavender glass canvas
-            glass_card = "#ffffff"       # Translucent pristine glass card
-            glass_border = "#c4b5fd"     # Specular glass border rim
-            shadow_ambient = "#ddd6fe"   # Soft ambient violet-tinted glass shadow
-            shadow_glow = "#e0e7ff"      # Outer glass refraction glow
+            # Translucent Frosted Glass Palette (Soft lavender mist / translucent white glass)
+            glass_canvas = "#f5f3ff"     # Translucent lavender glass canvas
+            glass_card = "#ffffff"       # Frosted glass card
+            glass_border = "#c4b5fd"     # Specular glass rim
             recessed_tray = "#ffffff"    # Frosted glass trough
             text_primary = "#0f172a"     # Crisp charcoal text
             text_secondary = "#334155"   # Dark slate
@@ -100,8 +175,25 @@ class OverlayHUD:
             accent_purple = "#7c3aed"    # Radiant purple / violet (from Atom motif)
             accent_lavender = "#ede9fe"  # Frosted lavender badge pill
 
-            # Outer border container
-            self.main_container = tk.Frame(self.root, bg=trans_col)
+            self.root.configure(bg=glass_canvas)
+            try:
+                self.root.attributes("-alpha", 0.86)
+            except Exception:
+                pass
+
+            self.screen_width = self.root.winfo_screenwidth()
+            pos_x_mini = self.screen_width - self.circle_size - 28
+            self.root.geometry(f"{self.circle_size}x{self.circle_size}+{pos_x_mini}+{self.pos_y}")
+            self.root.update_idletasks()
+
+            # Apply X11 True Circular Mask on Linux (Physically removes square corners!)
+            try:
+                self.shaper.shape_circle(self.root.winfo_id(), self.circle_size)
+            except Exception:
+                pass
+
+            # Outer container
+            self.main_container = tk.Frame(self.root, bg=glass_canvas)
             self.main_container.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
             # ========================================================
@@ -111,22 +203,18 @@ class OverlayHUD:
                 self.main_container,
                 width=self.circle_size,
                 height=self.circle_size,
-                bg=trans_col,
+                bg=glass_canvas,
                 highlightthickness=0,
                 cursor="hand2"
             )
             self.circle_canvas.pack(fill=tk.BOTH, expand=True)
 
-            # Glassmorphic Ambient Diffuse Shadow & Glow
-            self.circle_canvas.create_oval(6, 9, 94, 97, fill=shadow_ambient, outline="")
-            self.circle_canvas.create_oval(5, 7, 95, 95, fill=shadow_glow, outline="")
-
-            # Main Frosted Glass Orb Body (100px diameter)
-            self.orb_body = self.circle_canvas.create_oval(4, 4, 96, 96, fill=glass_card, outline=glass_border, width=1.8)
+            # Translucent Frosted Glass Disc (100px diameter)
+            self.orb_body = self.circle_canvas.create_oval(2, 2, 98, 98, fill="#fdfcff", outline="#c4b5fd", width=1.5)
 
             # Specular Glass Gleam & Refraction Arc
-            self.circle_canvas.create_oval(18, 8, 48, 22, fill="#ffffff", outline="")
-            self.circle_canvas.create_arc(8, 8, 92, 92, start=100, extent=65, style="arc", outline="#ffffff", width=2.5)
+            self.circle_canvas.create_arc(6, 6, 94, 94, start=45, extent=90, style="arc", outline="#ffffff", width=2.5)
+            self.circle_canvas.create_oval(24, 6, 76, 24, fill="#ffffff", outline="")
 
             # Purple Atom Orbital Rings (Scaled up: a=32, b=12)
             cx, cy = 50, 50
@@ -143,15 +231,15 @@ class OverlayHUD:
                 self.circle_canvas.create_line(pts, fill=orbit_colors[idx], width=1.8, smooth=True)
 
             # Glowing Purple Nucleus Vortex (Multi-layer radiant corona)
-            self.circle_canvas.create_oval(cx - 12, cy - 12, cx + 12, cy + 12, fill="#ede9fe", outline="")  # Lavender corona
-            self.circle_canvas.create_oval(cx - 8, cy - 8, cx + 8, cy + 8, fill="#c084fc", outline="")  # Lilac mid glow
+            self.circle_canvas.create_oval(cx - 13, cy - 13, cx + 13, cy + 13, fill="#ede9fe", outline="")  # Lavender corona
+            self.circle_canvas.create_oval(cx - 8.5, cy - 8.5, cx + 8.5, cy + 8.5, fill="#c084fc", outline="")  # Lilac mid glow
             self.circle_canvas.create_oval(cx - 5, cy - 5, cx + 5, cy + 5, fill="#7c3aed", outline="")  # Deep violet core
             self.circle_canvas.create_oval(cx - 2, cy - 2, cx + 2, cy + 2, fill="#ffffff", outline="")  # Brilliant center star
 
             # Tactile Glass Status Pip (Gem Bead at bottom-right)
-            self.circle_canvas.create_oval(68, 68, 88, 88, fill=shadow_ambient, outline="")
-            self.orb_pip = self.circle_canvas.create_oval(69, 69, 87, 87, fill="#10b981", outline="#34d399", width=1.5)
-            self.circle_canvas.create_oval(73, 71, 78, 76, fill="#ffffff", outline="")
+            self.circle_canvas.create_oval(67, 67, 87, 87, fill="#e9d5ff", outline="")
+            self.orb_pip = self.circle_canvas.create_oval(68, 68, 86, 86, fill="#10b981", outline="#34d399", width=1.5)
+            self.circle_canvas.create_oval(71, 70, 75, 74, fill="#ffffff", outline="")
 
             # Initial draw of revolving electrons
             self._update_atom_electrons()
@@ -164,7 +252,7 @@ class OverlayHUD:
             # ========================================================
             self.full_frame = tk.Frame(
                 self.main_container,
-                bg=glass_bg,
+                bg=glass_canvas,
                 highlightbackground=glass_border,
                 highlightthickness=1.5
             )
@@ -207,7 +295,7 @@ class OverlayHUD:
             self.status_lbl.pack(side=tk.LEFT, padx=(4, 0))
 
             # Body Container
-            body = tk.Frame(self.full_frame, bg=glass_bg)
+            body = tk.Frame(self.full_frame, bg=glass_canvas)
             body.pack(fill=tk.BOTH, expand=True, padx=12, pady=8)
 
             # Frosted Glass Trough for Telemetry
@@ -229,7 +317,7 @@ class OverlayHUD:
                 body,
                 text="Idle • Ready for assignments",
                 fg=text_muted,
-                bg=glass_bg,
+                bg=glass_canvas,
                 font=("Helvetica", 10),
                 wraplength=580,
                 justify="left"
@@ -348,6 +436,10 @@ class OverlayHUD:
         self.target_expanded = target_expanded
 
         if target_expanded:
+            try:
+                self.shaper.reset_shape(self.root.winfo_id(), self.full_width, self.full_height, radius=18)
+            except Exception:
+                pass
             self.circle_canvas.pack_forget()
             self.full_frame.pack(fill=tk.BOTH, expand=True)
             start_w, start_h = self.circle_size, self.circle_size
@@ -385,8 +477,14 @@ class OverlayHUD:
         else:
             self.is_expanded = self.target_expanded
             self.is_animating = False
-            border = "#7c3aed" if self.current_status == "BUSY" else ("#10b981" if self.current_status in ["ONLINE", "READY"] else "#c4b5fd")
-            self.full_frame.configure(highlightbackground=border)
+            if not self.is_expanded:
+                try:
+                    self.shaper.shape_circle(self.root.winfo_id(), self.circle_size)
+                except Exception:
+                    pass
+            else:
+                border = "#7c3aed" if self.current_status == "BUSY" else ("#10b981" if self.current_status in ["ONLINE", "READY"] else "#c4b5fd")
+                self.full_frame.configure(highlightbackground=border)
 
     def _auto_collapse_if_idle(self):
         if self.current_status in ["ONLINE", "READY"] and self.is_expanded:
