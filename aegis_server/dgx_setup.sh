@@ -18,14 +18,12 @@ echo "   Storage Vault: ${STORAGE_URL}"
 echo "   Gateway Hub:  ${GATEWAY_URL}"
 echo "======================================================================"
 
-# 1. Download standalone single-file agent (Zero pip packages needed)
-echo "[1/4] Fetching standalone agent (dgx_agent.py)..."
-if ! curl -fsSL "${STORAGE_URL}/dgx_agent.py" -o "$HOME/dgx_agent.py"; then
-    echo "[*] Trying GitHub Raw fallback..."
-    curl -fsSL "https://raw.githubusercontent.com/mukuld1511-bit/AEGIS/main/aegis_node/dgx_agent.py" -o "$HOME/dgx_agent.py"
-fi
+# 1. Download standalone single-file agent directly from GitHub Raw
+echo "[1/4] Fetching standalone agent (dgx_agent.py) from GitHub Raw..."
+curl -fsSL "https://raw.githubusercontent.com/mukuld1511-bit/AEGIS/main/aegis_node/dgx_agent.py" -o "$HOME/dgx_agent.py"
 chmod +x "$HOME/dgx_agent.py"
 echo "[✓] Saved $HOME/dgx_agent.py"
+
 
 # 2. Check/Install Ollama GPU runtime
 echo "[2/4] Verifying Ollama GPU runtime..."
