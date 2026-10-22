@@ -64,96 +64,106 @@ class OverlayHUD:
             pos_x_mini = self.screen_width - self.mini_width - 24
             self.root.geometry(f"{self.mini_width}x{self.mini_height}+{pos_x_mini}+{self.pos_y}")
 
-            bg_dark = "#0c0e14"
-            fg_cyan = "#00f0ff"
-            card_bg = "#151821"
+            # Minimalist Modern Studio Palette (Clean Slate / Graphite)
+            bg_dark = "#18181b"       # Neutral obsidian matte
+            card_bg = "#27272a"       # Clean dark slate
+            border_subtle = "#3f3f46" # 1px hairline border
+            text_primary = "#f4f4f5"  # Crisp off-white
+            text_muted = "#a1a1aa"    # Neutral slate secondary
+            code_bg = "#09090b"       # Matte editor dark
+            code_fg = "#e4e4e7"       # Editor clean gray-white
 
             self.root.configure(bg=bg_dark)
 
-            # Outer border container
-            self.main_container = tk.Frame(self.root, bg=bg_dark, highlightbackground="#10b981", highlightthickness=1)
-            self.main_container.pack(fill=tk.BOTH, expand=True, padx=1, pady=1)
+            # Outer subtle border container
+            self.main_container = tk.Frame(self.root, bg=bg_dark, highlightbackground=border_subtle, highlightthickness=1)
+            self.main_container.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
             # ==========================================
-            # 1. MINI LOGO BADGE (Idle State - Compact Pill)
+            # 1. MINI LOGO BADGE (Idle State - Minimal Pill)
             # ==========================================
             self.mini_frame = tk.Frame(self.main_container, bg=card_bg, cursor="hand2")
             self.mini_frame.pack(fill=tk.BOTH, expand=True)
 
-            self.mini_dot = tk.Label(self.mini_frame, text="●", fg="#10b981", bg=card_bg, font=("Consolas", 11))
-            self.mini_dot.pack(side=tk.LEFT, padx=(8, 4))
+            self.mini_dot = tk.Label(self.mini_frame, text="●", fg="#10b981", bg=card_bg, font=("Helvetica", 9))
+            self.mini_dot.pack(side=tk.LEFT, padx=(10, 4))
 
-            self.mini_logo = tk.Label(self.mini_frame, text="🛡️ AEGIS", fg="#00f0ff", bg=card_bg, font=("Helvetica", 9, "bold"))
+            self.mini_logo = tk.Label(self.mini_frame, text="AEGIS", fg=text_primary, bg=card_bg, font=("Helvetica", 9, "bold"))
             self.mini_logo.pack(side=tk.LEFT, padx=(0, 4))
 
-            self.mini_status = tk.Label(self.mini_frame, text="ONLINE", fg="#10b981", bg=card_bg, font=("Consolas", 8, "bold"))
+            self.mini_status = tk.Label(self.mini_frame, text=self.node_id, fg=text_muted, bg=card_bg, font=("Consolas", 8))
             self.mini_status.pack(side=tk.LEFT, padx=(2, 6))
 
-            self.mini_expand_icon = tk.Label(self.mini_frame, text="[+]", fg="#64748b", bg=card_bg, font=("Consolas", 8))
-            self.mini_expand_icon.pack(side=tk.RIGHT, padx=(0, 8))
+            self.mini_expand_icon = tk.Label(self.mini_frame, text="▾", fg="#71717a", bg=card_bg, font=("Helvetica", 8))
+            self.mini_expand_icon.pack(side=tk.RIGHT, padx=(0, 10))
 
-            # Click or double-click to expand
+            # Click to toggle expand
             for w in [self.mini_frame, self.mini_dot, self.mini_logo, self.mini_status, self.mini_expand_icon]:
                 w.bind("<Button-1>", lambda e: self.toggle_expand())
 
             # ==========================================
-            # 2. FULL HUD SCREEN (Active State - Enlarged)
+            # 2. FULL HUD SCREEN (Active State - Clean Studio)
             # ==========================================
             self.full_frame = tk.Frame(self.main_container, bg=bg_dark)
 
             # Header
-            hdr = tk.Frame(self.full_frame, bg=card_bg, height=36)
-            hdr.pack(fill=tk.X, padx=4, pady=4)
+            hdr = tk.Frame(self.full_frame, bg=card_bg, height=34)
+            hdr.pack(fill=tk.X, padx=0, pady=0)
 
-            self.status_dot = tk.Label(hdr, text="●", fg="#10b981", bg=card_bg, font=("Consolas", 12))
-            self.status_dot.pack(side=tk.LEFT, padx=(8, 4))
+            self.status_dot = tk.Label(hdr, text="●", fg="#10b981", bg=card_bg, font=("Helvetica", 10))
+            self.status_dot.pack(side=tk.LEFT, padx=(10, 4))
 
-            title_lbl = tk.Label(hdr, text=f"🛡️ AEGIS :: {self.node_name}", fg="#ffffff", bg=card_bg, font=("Helvetica", 10, "bold"))
+            title_lbl = tk.Label(hdr, text=f"AEGIS Studio  •  {self.node_name}", fg=text_primary, bg=card_bg, font=("Helvetica", 9, "bold"))
             title_lbl.pack(side=tk.LEFT)
 
-            # Collapse button [ ─ ]
-            collapse_btn = tk.Label(hdr, text="[ ─ ]", fg="#94a3b8", bg=card_bg, cursor="hand2", font=("Consolas", 9, "bold"))
-            collapse_btn.pack(side=tk.RIGHT, padx=(4, 6))
+            # Collapse button [ — ]
+            collapse_btn = tk.Label(hdr, text="—", fg=text_muted, bg=card_bg, cursor="hand2", font=("Helvetica", 10, "bold"))
+            collapse_btn.pack(side=tk.RIGHT, padx=(4, 10))
             collapse_btn.bind("<Button-1>", lambda e: self.set_expanded(False))
 
-            self.status_lbl = tk.Label(hdr, text="ONLINE", fg="#10b981", bg=card_bg, font=("Helvetica", 9, "bold"))
+            self.status_lbl = tk.Label(hdr, text="ONLINE", fg="#10b981", bg=card_bg, font=("Helvetica", 8, "bold"))
             self.status_lbl.pack(side=tk.RIGHT, padx=4)
+
+            # Body Container
+            body = tk.Frame(self.full_frame, bg=bg_dark)
+            body.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
 
             # Telemetry Bar
             self.telem_lbl = tk.Label(
-                self.full_frame,
-                text="GPU: 0% | VRAM: 0.0/128 GB | Temp: 35°C",
-                fg=fg_cyan,
+                body,
+                text="GPU 0%  •  VRAM 0.0/128 GB  •  35°C",
+                fg=text_muted,
                 bg=bg_dark,
                 font=("Consolas", 8)
             )
-            self.telem_lbl.pack(anchor="w", padx=8, pady=(2, 0))
+            self.telem_lbl.pack(anchor="w", padx=2, pady=(0, 2))
 
             # Task info
             self.task_lbl = tk.Label(
-                self.full_frame,
-                text="Active Task: Listening for coordinator assignments...",
-                fg="#7b88a1",
+                body,
+                text="Idle • Ready for tasks",
+                fg="#71717a",
                 bg=bg_dark,
-                font=("Helvetica", 8, "italic"),
-                wraplength=460,
+                font=("Helvetica", 8),
+                wraplength=440,
                 justify="left"
             )
-            self.task_lbl.pack(anchor="w", padx=8, pady=(2, 4))
+            self.task_lbl.pack(anchor="w", padx=2, pady=(0, 6))
 
             # Terminal log display area
             self.log_text = tk.Text(
-                self.full_frame,
-                bg="#06070a",
-                fg="#a7f3d0",
+                body,
+                bg=code_bg,
+                fg=code_fg,
+                insertbackground="#f4f4f5",
                 font=("Consolas", 8),
                 height=11,
                 wrap="char",
                 borderwidth=0,
                 highlightthickness=0
             )
-            self.log_text.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
-            self.log_text.insert(tk.END, f"AEGIS Physical Display HUD Online.\nConnected via Reverse-Heartbeat to Gateway.\n")
+            self.log_text.pack(fill=tk.BOTH, expand=True)
+            self.log_text.insert(tk.END, "AEGIS Autonomous Agent Online.\nConnected via Reverse-Heartbeat to Gateway.\n")
 
             # Enable window drag
             self._bind_drag(self.mini_frame)
@@ -191,18 +201,18 @@ class OverlayHUD:
         current_x = self.root.winfo_x()
         current_y = self.root.winfo_y()
 
+        border = "#f59e0b" if self.current_status == "BUSY" else "#3f3f46"
         if expand:
             pos_x = min(current_x, self.screen_width - self.full_width - 12)
             self.root.geometry(f"{self.full_width}x{self.full_height}+{pos_x}+{current_y}")
             self.mini_frame.pack_forget()
             self.full_frame.pack(fill=tk.BOTH, expand=True)
-            self.main_container.configure(highlightbackground="#00f0ff")
+            self.main_container.configure(highlightbackground=border)
         else:
             pos_x = min(current_x, self.screen_width - self.mini_width - 12)
             self.root.geometry(f"{self.mini_width}x{self.mini_height}+{pos_x}+{current_y}")
             self.full_frame.pack_forget()
             self.mini_frame.pack(fill=tk.BOTH, expand=True)
-            border = "#f59e0b" if self.current_status == "BUSY" else "#10b981"
             self.main_container.configure(highlightbackground=border)
 
     def _auto_collapse_if_idle(self):
