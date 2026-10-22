@@ -194,7 +194,7 @@ class DGXStandaloneAgent:
     def __init__(self, node_id: str = "dgx-node-1",
                  gateway_url: str = "https://raspberrypi.tailc8c1f6.ts.net",
                  fallback_url: str = "http://100.106.207.27:9000",
-                 storage_url: str = "http://100.88.197.6:9080",
+                 storage_url: str = "https://labg418pc12.tailc8c1f6.ts.net:8443",
                  ollama_url: str = "http://127.0.0.1:11434",
                  default_model: str = "deepseek-coder-v2:16b",
                  poll_interval: float = 6.0,
@@ -342,18 +342,25 @@ class DGXStandaloneAgent:
         return resp_text
 
     def upload_to_i7_vault(self, file_path: str, task_id: str) -> str:
-        """Uploads generated script to i7-14700 PC Vault via curl."""
+        """Uploads generated script to AEGIS PC Vault via curl."""
         if not os.path.exists(file_path):
             return "file_not_found"
-        try:
-            upload_url = f"{self.storage_url}/api/storage/{self.node_id}/upload/{task_id}"
-            cmd = ["curl", "-s", "-F", f"file=@{file_path}", "-F", "stage=outputs", upload_url]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-            if "stored_in_vault" in res.stdout:
-                return "synced_to_vault"
-            return f"vault_response: {res.stdout[:100]}"
-        except Exception as e:
-            return f"error: {str(e)}"
+
+        candidates = [self.storage_url, "https://labg418pc12.tailc8c1f6.ts.net:8443", "http://100.88.197.6:9080"]
+        last_error = "unknown"
+        for vault_base in candidates:
+            if not vault_base:
+                continue
+            try:
+                upload_url = f"{vault_base.rstrip('/')}/api/storage/{self.node_id}/upload/{task_id}"
+                cmd = ["curl", "-s", "--max-time", "15", "-F", f"file=@{file_path}", "-F", "stage=outputs", upload_url]
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+                if "stored_in_vault" in res.stdout:
+                    return f"synced_to_vault ({vault_base})"
+                last_error = res.stdout[:80] if res.stdout else "empty_response"
+            except Exception as e:
+                last_error = str(e)
+        return f"vault_sync_failed: {last_error}"
 
     def execute_task(self, task: dict):
         if self.is_locked:
@@ -536,7 +543,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AEGIS Standalone DGX Spark Node Agent with Floating HUD")
     parser.add_argument("--id", default="dgx-node-1", help="Node ID (e.g., dgx-node-1)")
     parser.add_argument("--gateway", default="https://raspberrypi.tailc8c1f6.ts.net", help="Raspberry Pi Tailscale Gateway")
-    parser.add_argument("--storage", default="http://100.88.197.6:9080", help="i7-14700 PC Vault URL")
+    parser.add_argument("--storage", default="https://labg418pc12.tailc8c1f6.ts.net:8443", help="AEGIS PC Vault URL")
     parser.add_argument("--model", default="deepseek-coder-v2:16b", help="Local Ollama model name")
     parser.add_argument("--interval", type=float, default=6.0, help="Heartbeat interval in seconds")
     parser.add_argument("--no-hud", action="store_true", help="Disable desktop screen overlay HUD")
