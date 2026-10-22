@@ -20,7 +20,10 @@ echo "======================================================================"
 
 # 1. Download standalone single-file agent (Zero pip packages needed)
 echo "[1/4] Fetching standalone agent (dgx_agent.py)..."
-curl -fsSL "${STORAGE_URL}/dgx_agent.py" -o "$HOME/dgx_agent.py"
+if ! curl -fsSL "${STORAGE_URL}/dgx_agent.py" -o "$HOME/dgx_agent.py"; then
+    echo "[*] Trying GitHub Raw fallback..."
+    curl -fsSL "https://raw.githubusercontent.com/mukuld1511-bit/AEGIS/main/aegis_node/dgx_agent.py" -o "$HOME/dgx_agent.py"
+fi
 chmod +x "$HOME/dgx_agent.py"
 echo "[✓] Saved $HOME/dgx_agent.py"
 
