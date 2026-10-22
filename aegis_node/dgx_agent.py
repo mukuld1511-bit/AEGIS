@@ -20,7 +20,6 @@ import socket
 import argparse
 import threading
 import subprocess
-import ctypes
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -33,120 +32,29 @@ try:
 except ImportError:
     HAS_TK = False
 
-class X11WindowShaper:
-    """True Circular & Rounded-Rect window mask for X11 on Linux using XShape extension."""
-    def __init__(self):
-        self.available = False
-        try:
-            self.X11 = ctypes.CDLL("libX11.so.6")
-            self.Xext = ctypes.CDLL("libXext.so.6")
-            self.available = True
-        except Exception:
-            try:
-                self.X11 = ctypes.CDLL("libX11.so")
-                self.Xext = ctypes.CDLL("libXext.so")
-                self.available = True
-            except Exception:
-                self.available = False
-
-    def shape_circle(self, x11_window_id: int, diameter: int):
-        if not self.available or not x11_window_id:
-            return False
-        try:
-            display = self.X11.XOpenDisplay(None)
-            if not display:
-                return False
-
-            class XRectangle(ctypes.Structure):
-                _fields_ = [
-                    ("x", ctypes.c_short),
-                    ("y", ctypes.c_short),
-                    ("width", ctypes.c_ushort),
-                    ("height", ctypes.c_ushort)
-                ]
-
-            r = diameter / 2.0
-            rects = []
-            for y in range(diameter):
-                dy = abs(y + 0.5 - r)
-                if dy <= r:
-                    dx = math.sqrt(max(0.0, r * r - dy * dy))
-                    x_start = int(round(r - dx))
-                    x_end = int(round(r + dx))
-                    rects.append(XRectangle(x_start, y, max(1, x_end - x_start), 1))
-
-            rect_array = (XRectangle * len(rects))(*rects)
-            self.Xext.XShapeCombineRectangles(display, x11_window_id, 0, 0, 0, rect_array, len(rects), 0, 0)
-            self.X11.XFlush(display)
-            self.X11.XCloseDisplay(display)
-            return True
-        except Exception:
-            return False
-
-    def reset_shape(self, x11_window_id: int, width: int, height: int, radius: int = 18):
-        if not self.available or not x11_window_id:
-            return False
-        try:
-            display = self.X11.XOpenDisplay(None)
-            if not display:
-                return False
-
-            class XRectangle(ctypes.Structure):
-                _fields_ = [
-                    ("x", ctypes.c_short),
-                    ("y", ctypes.c_short),
-                    ("width", ctypes.c_ushort),
-                    ("height", ctypes.c_ushort)
-                ]
-
-            rects = []
-            for y in range(height):
-                if y < radius:
-                    dy = radius - (y + 0.5)
-                    dx = radius - math.sqrt(max(0.0, radius * radius - dy * dy))
-                    x_start = int(round(dx))
-                    x_end = width - int(round(dx))
-                    rects.append(XRectangle(x_start, y, max(1, x_end - x_start), 1))
-                elif y >= height - radius:
-                    dy = (y + 0.5) - (height - radius)
-                    dx = radius - math.sqrt(max(0.0, radius * radius - dy * dy))
-                    x_start = int(round(dx))
-                    x_end = width - int(round(dx))
-                    rects.append(XRectangle(x_start, y, max(1, x_end - x_start), 1))
-                else:
-                    rects.append(XRectangle(0, y, width, 1))
-
-            rect_array = (XRectangle * len(rects))(*rects)
-            self.Xext.XShapeCombineRectangles(display, x11_window_id, 0, 0, 0, rect_array, len(rects), 0, 0)
-            self.X11.XFlush(display)
-            self.X11.XCloseDisplay(display)
-            return True
-        except Exception:
-            return False
-
 class OverlayHUD:
-    """Floating Transparent Glassmorphic HUD with glowing Purple Atom Motif:
-    - Large 3D translucent frosted glass orb (100px) with true X11 circular masking.
-    - Luminous purple atomic orbitals with rotating electrons & glowing nucleus.
-    - Damped spring-elastic expansion into a large, spacious glassmorphic console (620x430).
-    - Inset frosted glass panels, glowing telemetry, and real-time code stream.
+    """Crash-proof Transparent Glassmorphic HUD with glowing Purple Atom Motif:
+    - Floating frosted glass capsule (154x56) in idle state with real-time revolving purple atom.
+    - Damped spring-elastic expansion into a spacious glassmorphic console (620x430).
+    - 100% pure standard Tkinter: Zero ctypes, zero native C calls, zero segmentation faults.
+    - True window translucency (-alpha 0.86) with crisp specular glass borders (#c4b5fd).
     """
     def __init__(self, node_id: str = "dgx-node-1", node_name: str = "DGX Spark 01"):
         self.node_id = node_id
         self.node_name = node_name
         self.log_queue = queue.Queue()
         self.root = None
-        self.shaper = X11WindowShaper()
         self.is_expanded = False
         self.is_animating = False
         self.current_status = "ONLINE"
         self.pulse_phase = False
         self.atom_phase = 0.0
 
-        # Bigger UI element dimensions
-        self.circle_size = 100
-        self.full_width = 620
-        self.full_height = 430
+        # UI Dimensions
+        self.mini_w = 154
+        self.mini_h = 56
+        self.full_w = 620
+        self.full_h = 430
         self.pos_y = 24
         self.screen_width = 1920
         self._drag_x = 0
@@ -164,10 +72,10 @@ class OverlayHUD:
             self.root.overrideredirect(True) # Borderless floating window
             self.root.attributes("-topmost", True) # Always on top
 
-            # Translucent Frosted Glass Palette (Soft lavender mist / translucent white glass)
-            glass_canvas = "#f5f3ff"     # Translucent lavender glass canvas
+            # Frosted Glassmorphism Palette (Soft lavender mist / translucent glass)
+            glass_bg = "#f8f7ff"         # Frosted lavender glass canvas
             glass_card = "#ffffff"       # Frosted glass card
-            glass_border = "#c4b5fd"     # Specular glass rim
+            glass_border = "#c4b5fd"     # Specular glass border rim
             recessed_tray = "#ffffff"    # Frosted glass trough
             text_primary = "#0f172a"     # Crisp charcoal text
             text_secondary = "#334155"   # Dark slate
@@ -175,87 +83,94 @@ class OverlayHUD:
             accent_purple = "#7c3aed"    # Radiant purple / violet (from Atom motif)
             accent_lavender = "#ede9fe"  # Frosted lavender badge pill
 
-            self.root.configure(bg=glass_canvas)
+            self.root.configure(bg=glass_bg)
             try:
                 self.root.attributes("-alpha", 0.86)
             except Exception:
                 pass
 
             self.screen_width = self.root.winfo_screenwidth()
-            pos_x_mini = self.screen_width - self.circle_size - 28
-            self.root.geometry(f"{self.circle_size}x{self.circle_size}+{pos_x_mini}+{self.pos_y}")
-            self.root.update_idletasks()
+            pos_x_mini = self.screen_width - self.mini_w - 24
+            self.root.geometry(f"{self.mini_w}x{self.mini_h}+{pos_x_mini}+{self.pos_y}")
 
-            # Apply X11 True Circular Mask on Linux (Physically removes square corners!)
-            try:
-                self.shaper.shape_circle(self.root.winfo_id(), self.circle_size)
-            except Exception:
-                pass
-
-            # Outer container
-            self.main_container = tk.Frame(self.root, bg=glass_canvas)
+            # Outer Glass Border Container
+            self.main_container = tk.Frame(
+                self.root,
+                bg=glass_bg,
+                highlightbackground=glass_border,
+                highlightthickness=1.5
+            )
             self.main_container.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
             # ========================================================
-            # 1. 3D TRANSPARENT GLASS ORB WITH PURPLE ATOM (Idle State)
+            # 1. FLOATING FROSTED GLASS CAPSULE (Idle State)
             # ========================================================
-            self.circle_canvas = tk.Canvas(
-                self.main_container,
-                width=self.circle_size,
-                height=self.circle_size,
-                bg=glass_canvas,
+            self.mini_frame = tk.Frame(self.main_container, bg=glass_bg, cursor="hand2")
+            self.mini_frame.pack(fill=tk.BOTH, expand=True)
+
+            # Left: Purple Atom Canvas (48x48)
+            self.atom_canvas = tk.Canvas(
+                self.mini_frame,
+                width=48,
+                height=48,
+                bg=glass_bg,
                 highlightthickness=0,
                 cursor="hand2"
             )
-            self.circle_canvas.pack(fill=tk.BOTH, expand=True)
+            self.atom_canvas.pack(side=tk.LEFT, padx=(4, 0), pady=4)
 
-            # Translucent Frosted Glass Disc (100px diameter)
-            self.orb_body = self.circle_canvas.create_oval(2, 2, 98, 98, fill="#fdfcff", outline="#c4b5fd", width=1.5)
-
-            # Specular Glass Gleam & Refraction Arc
-            self.circle_canvas.create_arc(6, 6, 94, 94, start=45, extent=90, style="arc", outline="#ffffff", width=2.5)
-            self.circle_canvas.create_oval(24, 6, 76, 24, fill="#ffffff", outline="")
-
-            # Purple Atom Orbital Rings (Scaled up: a=32, b=12)
-            cx, cy = 50, 50
+            # Draw static atom orbital tracks (a=17, b=7)
+            cx, cy = 24, 24
+            a, b = 17, 7
             orbit_colors = ["#8b5cf6", "#9333ea", "#7c3aed"]
             for idx, angle_deg in enumerate(self.orbits):
                 rad = math.radians(angle_deg)
                 pts = []
-                for step in range(48):
-                    t = 2 * math.pi * step / 48.0
-                    x = cx + 32 * math.cos(t) * math.cos(rad) - 12 * math.sin(t) * math.sin(rad)
-                    y = cy + 32 * math.cos(t) * math.sin(rad) + 12 * math.sin(t) * math.cos(rad)
+                for step in range(36):
+                    t = 2 * math.pi * step / 36.0
+                    x = cx + a * math.cos(t) * math.cos(rad) - b * math.sin(t) * math.sin(rad)
+                    y = cy + a * math.cos(t) * math.sin(rad) + b * math.sin(t) * math.cos(rad)
                     pts.extend([x, y])
                 pts.extend([pts[0], pts[1]])
-                self.circle_canvas.create_line(pts, fill=orbit_colors[idx], width=1.8, smooth=True)
+                self.atom_canvas.create_line(pts, fill=orbit_colors[idx], width=1.5, smooth=True)
 
-            # Glowing Purple Nucleus Vortex (Multi-layer radiant corona)
-            self.circle_canvas.create_oval(cx - 13, cy - 13, cx + 13, cy + 13, fill="#ede9fe", outline="")  # Lavender corona
-            self.circle_canvas.create_oval(cx - 8.5, cy - 8.5, cx + 8.5, cy + 8.5, fill="#c084fc", outline="")  # Lilac mid glow
-            self.circle_canvas.create_oval(cx - 5, cy - 5, cx + 5, cy + 5, fill="#7c3aed", outline="")  # Deep violet core
-            self.circle_canvas.create_oval(cx - 2, cy - 2, cx + 2, cy + 2, fill="#ffffff", outline="")  # Brilliant center star
+            # Glowing purple nucleus vortex
+            self.atom_canvas.create_oval(cx - 6, cy - 6, cx + 6, cy + 6, fill="#ede9fe", outline="")  # Lavender corona
+            self.atom_canvas.create_oval(cx - 4, cy - 4, cx + 4, cy + 4, fill="#8b5cf6", outline="")  # Purple halo
+            self.atom_canvas.create_oval(cx - 2, cy - 2, cx + 2, cy + 2, fill="#7c3aed", outline="")  # Violet core
+            self.atom_canvas.create_oval(cx - 1, cy - 1, cx + 1, cy + 1, fill="#ffffff", outline="")  # Star center
 
-            # Tactile Glass Status Pip (Gem Bead at bottom-right)
-            self.circle_canvas.create_oval(67, 67, 87, 87, fill="#e9d5ff", outline="")
-            self.orb_pip = self.circle_canvas.create_oval(68, 68, 86, 86, fill="#10b981", outline="#34d399", width=1.5)
-            self.circle_canvas.create_oval(71, 70, 75, 74, fill="#ffffff", outline="")
+            # Right: Capsule text and live status pill
+            r_frame = tk.Frame(self.mini_frame, bg=glass_bg, cursor="hand2")
+            r_frame.pack(side=tk.LEFT, padx=(6, 8), fill=tk.Y, pady=6)
+
+            title_lbl = tk.Label(r_frame, text="AEGIS Spark", fg="#1e1b4b", bg=glass_bg, font=("Helvetica", 9, "bold"), cursor="hand2")
+            title_lbl.pack(anchor="w")
+
+            status_pill = tk.Frame(r_frame, bg=accent_lavender, padx=6, pady=1, cursor="hand2")
+            status_pill.pack(anchor="w", pady=(2, 0))
+
+            self.mini_dot = tk.Label(status_pill, text="●", fg="#10b981", bg=accent_lavender, font=("Helvetica", 7), cursor="hand2")
+            self.mini_dot.pack(side=tk.LEFT)
+
+            self.mini_lbl = tk.Label(status_pill, text=" ONLINE", fg=accent_purple, bg=accent_lavender, font=("Helvetica", 7, "bold"), cursor="hand2")
+            self.mini_lbl.pack(side=tk.LEFT)
+
+            # Bind clicks to spring-expand
+            self.mini_frame.bind("<Button-1>", lambda e: self.start_animation(True))
+            self.atom_canvas.bind("<Button-1>", lambda e: self.start_animation(True))
+            title_lbl.bind("<Button-1>", lambda e: self.start_animation(True))
+            status_pill.bind("<Button-1>", lambda e: self.start_animation(True))
+            self.mini_dot.bind("<Button-1>", lambda e: self.start_animation(True))
+            self.mini_lbl.bind("<Button-1>", lambda e: self.start_animation(True))
 
             # Initial draw of revolving electrons
             self._update_atom_electrons()
 
-            # Click circular glass orb to spring-expand
-            self.circle_canvas.bind("<Button-1>", lambda e: self.start_animation(True))
-
             # ========================================================
             # 2. BIGGER TRANSPARENT GLASS CONSOLE (Expanded State)
             # ========================================================
-            self.full_frame = tk.Frame(
-                self.main_container,
-                bg=glass_canvas,
-                highlightbackground=glass_border,
-                highlightthickness=1.5
-            )
+            self.full_frame = tk.Frame(self.main_container, bg=glass_bg)
 
             # Frosted Glass Header (Height 44px)
             hdr = tk.Frame(self.full_frame, bg=glass_card, height=44)
@@ -264,8 +179,8 @@ class OverlayHUD:
             atom_icon = tk.Label(hdr, text="⚛", fg=accent_purple, bg=glass_card, font=("Helvetica", 16, "bold"))
             atom_icon.pack(side=tk.LEFT, padx=(12, 6))
 
-            title_lbl = tk.Label(hdr, text=f"AEGIS Studio  •  {self.node_name}", fg=text_primary, bg=glass_card, font=("Helvetica", 11, "bold"))
-            title_lbl.pack(side=tk.LEFT)
+            title_full_lbl = tk.Label(hdr, text=f"AEGIS Studio  •  {self.node_name}", fg=text_primary, bg=glass_card, font=("Helvetica", 11, "bold"))
+            title_full_lbl.pack(side=tk.LEFT)
 
             # Tactile Glass Pill Button for collapse [ — ]
             collapse_btn = tk.Label(
@@ -295,7 +210,7 @@ class OverlayHUD:
             self.status_lbl.pack(side=tk.LEFT, padx=(4, 0))
 
             # Body Container
-            body = tk.Frame(self.full_frame, bg=glass_canvas)
+            body = tk.Frame(self.full_frame, bg=glass_bg)
             body.pack(fill=tk.BOTH, expand=True, padx=12, pady=8)
 
             # Frosted Glass Trough for Telemetry
@@ -317,7 +232,7 @@ class OverlayHUD:
                 body,
                 text="Idle • Ready for assignments",
                 fg=text_muted,
-                bg=glass_canvas,
+                bg=glass_bg,
                 font=("Helvetica", 10),
                 wraplength=580,
                 justify="left"
@@ -350,8 +265,9 @@ class OverlayHUD:
             self.log_text.insert(tk.END, "⚛ AEGIS Autonomous Agent Online.\n", "purple")
             self.log_text.insert(tk.END, "Connected via Reverse-Heartbeat to Gateway.\n", "muted")
 
-            # Enable window dragging on both circular orb and header
-            self._bind_drag(self.circle_canvas)
+            # Enable window dragging on both mini capsule and expanded header
+            self._bind_drag(self.mini_frame)
+            self._bind_drag(self.atom_canvas)
             self._bind_drag(hdr)
 
             # Start animation ticks and queue processor
@@ -380,22 +296,22 @@ class OverlayHUD:
         """Draws revolving electrons along the orbital tracks."""
         if not self.root or self.is_expanded:
             return
-        self.circle_canvas.delete("atom_electron")
-        cx, cy = 50, 50
-        a, b = 32, 12
+        self.atom_canvas.delete("atom_electron")
+        cx, cy = 24, 24
+        a, b = 17, 7
         for idx, angle_deg in enumerate(self.orbits):
             rad = math.radians(angle_deg)
             t_el = self.atom_phase + idx * (2 * math.pi / 3.0)
             x_el = cx + a * math.cos(t_el) * math.cos(rad) - b * math.sin(t_el) * math.sin(rad)
             y_el = cy + a * math.cos(t_el) * math.sin(rad) + b * math.sin(t_el) * math.cos(rad)
             # Electron lilac glow aura
-            self.circle_canvas.create_oval(
-                x_el - 5, y_el - 5, x_el + 5, y_el + 5,
+            self.atom_canvas.create_oval(
+                x_el - 3.5, y_el - 3.5, x_el + 3.5, y_el + 3.5,
                 fill="#c084fc", outline="", tags="atom_electron"
             )
             # Electron brilliant white core
-            self.circle_canvas.create_oval(
-                x_el - 2.5, y_el - 2.5, x_el + 2.5, y_el + 2.5,
+            self.atom_canvas.create_oval(
+                x_el - 1.8, y_el - 1.8, x_el + 1.8, y_el + 1.8,
                 fill="#ffffff", outline="", tags="atom_electron"
             )
 
@@ -410,7 +326,7 @@ class OverlayHUD:
         self.root.after(70, self._atom_tick)
 
     def _pulse_loop(self):
-        """Tactile gentle pulse on the glass bead status pip."""
+        """Tactile gentle pulse on the status pip."""
         if not self.root:
             return
         if not self.is_expanded and not self.is_animating:
@@ -418,7 +334,7 @@ class OverlayHUD:
             base_col = "#10b981" if self.current_status in ["ONLINE", "READY"] else "#7c3aed"
             dim_col = "#059669" if self.current_status in ["ONLINE", "READY"] else "#5b21b6"
             cur = base_col if self.pulse_phase else dim_col
-            self.circle_canvas.itemconfig(self.orb_pip, fill=cur)
+            self.mini_dot.configure(fg=cur)
         self.root.after(1200, self._pulse_loop)
 
     def toggle_expand(self):
@@ -428,7 +344,7 @@ class OverlayHUD:
         self.log_queue.put(("expand", expand))
 
     def start_animation(self, target_expanded: bool):
-        """Spring-elastic expansion / minimization between glass orb and console."""
+        """Spring-elastic expansion / minimization between glass capsule and console."""
         if self.is_animating or self.is_expanded == target_expanded:
             return
 
@@ -436,19 +352,15 @@ class OverlayHUD:
         self.target_expanded = target_expanded
 
         if target_expanded:
-            try:
-                self.shaper.reset_shape(self.root.winfo_id(), self.full_width, self.full_height, radius=18)
-            except Exception:
-                pass
-            self.circle_canvas.pack_forget()
+            self.mini_frame.pack_forget()
             self.full_frame.pack(fill=tk.BOTH, expand=True)
-            start_w, start_h = self.circle_size, self.circle_size
-            end_w, end_h = self.full_width, self.full_height
+            start_w, start_h = self.mini_w, self.mini_h
+            end_w, end_h = self.full_w, self.full_h
         else:
             self.full_frame.pack_forget()
-            self.circle_canvas.pack(fill=tk.BOTH, expand=True)
-            start_w, start_h = self.full_width, self.full_height
-            end_w, end_h = self.circle_size, self.circle_size
+            self.mini_frame.pack(fill=tk.BOTH, expand=True)
+            start_w, start_h = self.full_w, self.full_h
+            end_w, end_h = self.mini_w, self.mini_h
 
         self._step_animation(1, 15, start_w, end_w, start_h, end_h)
 
@@ -477,14 +389,8 @@ class OverlayHUD:
         else:
             self.is_expanded = self.target_expanded
             self.is_animating = False
-            if not self.is_expanded:
-                try:
-                    self.shaper.shape_circle(self.root.winfo_id(), self.circle_size)
-                except Exception:
-                    pass
-            else:
-                border = "#7c3aed" if self.current_status == "BUSY" else ("#10b981" if self.current_status in ["ONLINE", "READY"] else "#c4b5fd")
-                self.full_frame.configure(highlightbackground=border)
+            border = "#7c3aed" if self.current_status == "BUSY" else ("#10b981" if self.current_status in ["ONLINE", "READY"] else "#c4b5fd")
+            self.main_container.configure(highlightbackground=border)
 
     def _auto_collapse_if_idle(self):
         if self.current_status in ["ONLINE", "READY"] and self.is_expanded:
@@ -532,10 +438,11 @@ class OverlayHUD:
                     if title:
                         self.task_lbl.configure(text=f"Task: {title}")
 
-                    # Update Circular Logo Pip color
-                    self.circle_canvas.itemconfig(self.orb_pip, fill=color)
+                    # Update Mini Capsule labels
+                    self.mini_dot.configure(fg=color)
+                    self.mini_lbl.configure(text=f" {self.current_status}", fg=color)
 
-                    # Dynamic animation: Enlarge on BUSY, auto-minimise to circular logo after idle
+                    # Dynamic animation: Enlarge on BUSY, auto-minimise to capsule after idle
                     if self.current_status == "BUSY":
                         self.start_animation(True)
                     elif self.current_status in ["ONLINE", "READY"]:
@@ -547,7 +454,8 @@ class OverlayHUD:
                 elif kind == "warning":
                     self.status_lbl.configure(text="ALERT", fg="#ef4444")
                     self.status_dot.configure(fg="#ef4444")
-                    self.circle_canvas.itemconfig(self.orb_pip, fill="#ef4444")
+                    self.mini_dot.configure(fg="#ef4444")
+                    self.mini_lbl.configure(text=" ALERT", fg="#ef4444")
                     self.log_text.insert(tk.END, f"\n⚠️ [GATEWAY ALERT] {data}\n", "red")
                     self.log_text.see(tk.END)
                     self.start_animation(True)
@@ -556,14 +464,16 @@ class OverlayHUD:
                     if locked:
                         self.status_lbl.configure(text="LOCKED", fg="#dc2626")
                         self.status_dot.configure(fg="#dc2626")
-                        self.circle_canvas.itemconfig(self.orb_pip, fill="#dc2626")
+                        self.mini_dot.configure(fg="#dc2626")
+                        self.mini_lbl.configure(text=" LOCKED", fg="#dc2626")
                         self.task_lbl.configure(text=f"NODE LOCKED: {reason or 'Administrative Lock'}")
                         self.log_text.insert(tk.END, f"\n🔒 [STATION LOCKED] {reason}\n", "red")
                         self.start_animation(True)
                     else:
                         self.status_lbl.configure(text="ONLINE", fg="#10b981")
                         self.status_dot.configure(fg="#10b981")
-                        self.circle_canvas.itemconfig(self.orb_pip, fill="#10b981")
+                        self.mini_dot.configure(fg="#10b981")
+                        self.mini_lbl.configure(text=" ONLINE", fg="#10b981")
                         self.task_lbl.configure(text="Idle • Ready for tasks")
                         self.log_text.insert(tk.END, f"\n🔓 [STATION UNLOCKED]\n", "green")
         except Exception:
