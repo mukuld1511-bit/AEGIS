@@ -274,19 +274,36 @@ def create_app(state_mgr: StateManager, orchestrator: Orchestrator, safety: Safe
         state_mgr._broadcast("dgx_task_finished", payload.model_dump(mode="json"))
 
         # If this was a primary coding task, automatically queue review task for DGX 2
+        is_review_task = payload.task_id.endswith("_rev")
+        rev_node = None
         task_rec = state_mgr.tasks.get(payload.task_id)
         if task_rec and task_rec.reviewer_node_id and task_rec.reviewer_node_id != payload.node_id:
             rev_node = task_rec.reviewer_node_id
+        elif not is_review_task and payload.node_id == "dgx-node-1":
+            rev_node = "dgx-node-2"
+
+        if rev_node and not is_review_task:
+            review_prompt = (
+                f"You are the Lead QA & Review Engineer on DGX Node 2. "
+                f"Review the generated code for task {payload.task_id}:\n\n"
+                f"{payload.stdout}\n\n"
+                f"Write a thorough code review report and comprehensive pytest unit tests. "
+                f"Save tests using '# filename: test_suite.py' on the first line of the code block."
+            )
             review_task = {
                 "task_id": f"{payload.task_id}_rev",
-                "prompt": f"Review the generated code for task {payload.task_id} and write unit tests.",
+                "prompt": review_prompt,
                 "command": None,
+                "model": "qwen2.5-coder:32b",
+                "num_ctx": 65536,
                 "target_file": payload.generated_file,
                 "dictated_upload_cmd": None,
                 "is_review_handoff": True,
-                "parent_task_id": payload.task_id
+                "parent_task_id": payload.task_id,
+                "storage_vault_url": f"http://100.88.197.6:9080/api/storage/{rev_node}/upload/{payload.task_id}_rev"
             }
             node_task_queues[rev_node].append(review_task)
+            state_mgr.update_node_status(rev_node, "busy", f"{payload.task_id}_rev")
             state_mgr._broadcast("review_task_queued", {"reviewer_node": rev_node, "task": review_task})
 
         return {"status": "recorded", "task_id": payload.task_id}

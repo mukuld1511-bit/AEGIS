@@ -77,7 +77,16 @@ if HAS_PYQT:
 
             screen = QApplication.primaryScreen().availableGeometry()
             self.margin_right = 24
-            self.margin_top = 24
+            
+            # Offset vertical position by node index so multiple DGX orbs stack cleanly
+            node_idx = 1
+            try:
+                if "node-" in str(self.node_id):
+                    node_idx = int(str(self.node_id).split("node-")[1])
+            except Exception:
+                node_idx = 1
+            self.margin_top = 24 + (node_idx - 1) * 96
+
             self.right_edge = screen.x() + screen.width() - self.margin_right
             self.pos_x = self.right_edge - self.cur_w
             self.pos_y = screen.y() + self.margin_top
@@ -118,14 +127,17 @@ if HAS_PYQT:
 
             # Header
             hdr = QHBoxLayout()
-            self.lbl_title = QLabel(f"⚛  AEGIS Spark  •  {self.node_name}", self.content_widget)
+            is_node_2 = "2" in str(self.node_id)
+            role_badge = "Lead Coder" if "1" in str(self.node_id) else ("Reviewer & QA" if is_node_2 else self.node_name)
+            self.lbl_title = QLabel(f"⚛  AEGIS Spark  •  {self.node_id.upper()} ({role_badge})", self.content_widget)
             self.lbl_title.setStyleSheet("color: #1e1b4b; font-size: 13px; font-weight: bold;")
             hdr.addWidget(self.lbl_title)
 
             hdr.addStretch()
 
             self.lbl_status = QLabel("● ONLINE", self.content_widget)
-            self.lbl_status.setStyleSheet("background: #ede9fe; color: #7c3aed; font-size: 10px; font-weight: bold; border-radius: 8px; padding: 3px 8px;")
+            status_style = "background: #d1fae5; color: #059669;" if is_node_2 else "background: #ede9fe; color: #7c3aed;"
+            self.lbl_status.setStyleSheet(f"{status_style} font-size: 10px; font-weight: bold; border-radius: 8px; padding: 3px 8px;")
             hdr.addWidget(self.lbl_status)
 
             self.btn_collapse = QLabel(" — ", self.content_widget)
@@ -909,8 +921,13 @@ class DGXStandaloneAgent:
                         os.environ["DISPLAY"] = ":0"
 
                 if HAS_PYQT:
-                    self.hud = PyQtOverlayHUD(node_id=self.node_id, node_name=f"DGX Spark {self.node_id}")
-                    print(f"[✓] PyQt5 Translucent Animated Orb HUD ready on DISPLAY {os.environ.get('DISPLAY', ':0')}")
+                    try:
+                        from aegis_node.overlay.dynamic_hud import AegisMasterHUD
+                        self.hud = AegisMasterHUD(node_id=self.node_id, node_name=f"DGX Spark {self.node_id}")
+                        print(f"[✓] Parakeet AI Neon Green Dynamic Island & Corner HUD active on DISPLAY {os.environ.get('DISPLAY', ':0')}")
+                    except Exception as e:
+                        self.hud = PyQtOverlayHUD(node_id=self.node_id, node_name=f"DGX Spark {self.node_id}")
+                        print(f"[✓] PyQt5 Animated Orb HUD ready on DISPLAY {os.environ.get('DISPLAY', ':0')} ({e})")
                 elif HAS_TK:
                     self.hud = OverlayHUD(node_id=self.node_id, node_name=f"DGX Spark {self.node_id}")
                     self.hud.start_hud_thread()

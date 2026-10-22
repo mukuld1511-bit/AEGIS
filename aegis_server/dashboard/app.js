@@ -44,7 +44,7 @@ let selectedNodeId = 'dgx-node-1';
 // Initial default node data mapped to the 8 ultimate models (899B / 1024 GB Cluster)
 let nodesData = [
   { id: 'dgx-node-1', name: 'DGX Spark 01 - Lead Coder', status: 'online', model: 'Qwen2.5-Coder:32B (65K Context)', vram_used: 19.5, vram_total: 128, gpu_pct: 14, temp: 45, screen: ':0 (Lead Coder HUD)' },
-  { id: 'dgx-node-2', name: 'DGX Spark 02 - Reviewer & QA', status: 'online', model: 'Qwen2.5-72B-Instruct (72B)', vram_used: 52.0, vram_total: 128, gpu_pct: 8, temp: 41, screen: ':0 (QA Review HUD)' },
+  { id: 'dgx-node-2', name: 'DGX Spark 02 - Reviewer & QA', status: 'online', model: 'Qwen2.5-Coder:32B (QA & Pytest)', vram_used: 19.5, vram_total: 128, gpu_pct: 8, temp: 41, screen: ':0 (QA Review HUD)' },
   { id: 'dgx-node-3', name: 'DGX Spark 03 - Vision Model', status: 'online', model: 'Pixtral Large (124B Multimodal)', vram_used: 70.0, vram_total: 128, gpu_pct: 16, temp: 44, screen: ':0 (Pixtral Vision HUD)' },
   { id: 'dgx-node-4', name: 'DGX Spark 04 - Writer & Reasoner', status: 'online', model: 'Mixtral 8x22B MoE (141B)', vram_used: 80.0, vram_total: 128, gpu_pct: 22, temp: 48, screen: ':0 (Deep Reason HUD)' },
   { id: 'dgx-node-5', name: 'DGX Spark 05 - Security Auditor', status: 'online', model: 'Command R+ (104B Security)', vram_used: 62.0, vram_total: 128, gpu_pct: 6, temp: 40, screen: ':0 (Security HUD)' },
@@ -98,6 +98,21 @@ function handleWsEvent(msg) {
   } else if (msg.event === 'task_created') {
     appendTerminal(`\n[TASK CREATED] ID: ${msg.data.task_id} | Node: ${msg.data.assigned_node_id}`, 'term-cyan');
     setNodeStatus(msg.data.assigned_node_id, 'busy');
+  } else if (msg.event === 'review_task_queued') {
+    const revNode = msg.data.reviewer_node || 'dgx-node-2';
+    const task = msg.data.task || {};
+    appendTerminal(`\n⚛ [AUTONOMOUS INTER-NODE HANDOFF]`, 'term-cyan');
+    appendTerminal(`  • DGX Node 1 completed code generation!`, 'term-emerald');
+    appendTerminal(`  • Auto-routing review & pytest suite (${task.task_id || 'task_rev'}) to ${revNode.toUpperCase()}...`, 'term-cyan');
+    setNodeStatus(revNode, 'busy');
+  } else if (msg.event === 'dgx_task_finished') {
+    appendTerminal(`[TASK FINISHED] ${msg.data.node_id?.toUpperCase() || 'NODE'} completed ${msg.data.task_id} (Exit: ${msg.data.exit_code})`, 'term-emerald');
+    setNodeStatus(msg.data.node_id, 'online');
+    if (typeof loadRecentArtifacts === 'function') loadRecentArtifacts();
+  } else if (msg.event === 'task_completed') {
+    appendTerminal(`[TASK ARCHIVED] Task ${msg.data.task_id} completed.`, 'term-dim');
+    if (msg.data.assigned_node_id) setNodeStatus(msg.data.assigned_node_id, 'online');
+    if (typeof loadRecentArtifacts === 'function') loadRecentArtifacts();
   }
 }
 
