@@ -12,6 +12,7 @@ Zero External Pip Dependencies (Uses Python standard library + Tkinter).
 import os
 import re
 import sys
+import math
 import time
 import json
 import queue
@@ -32,18 +33,20 @@ except ImportError:
     HAS_TK = False
 
 class OverlayHUD:
-    """Floating dynamic head-up-display with auto-collapse to logo pill and auto-enlarge on task."""
+    """Floating minimalist head-up-display: Circular transparent logo orb that animates into full studio console."""
     def __init__(self, node_id: str = "dgx-node-1", node_name: str = "DGX Spark 01"):
         self.node_id = node_id
         self.node_name = node_name
         self.log_queue = queue.Queue()
         self.root = None
         self.is_expanded = False
+        self.is_animating = False
         self.current_status = "ONLINE"
-        self.full_width = 480
-        self.full_height = 320
-        self.mini_width = 195
-        self.mini_height = 38
+        self.pulse_phase = False
+
+        self.circle_size = 56
+        self.full_width = 460
+        self.full_height = 310
         self.pos_y = 24
         self.screen_width = 1920
         self._drag_x = 0
@@ -57,14 +60,20 @@ class OverlayHUD:
         try:
             self.root = tk.Tk()
             self.root.title(f"AEGIS - {self.node_id}")
-            self.root.overrideredirect(True) # Borderless
+            self.root.overrideredirect(True) # Borderless floating window
             self.root.attributes("-topmost", True) # Always on top
 
-            self.screen_width = self.root.winfo_screenwidth()
-            pos_x_mini = self.screen_width - self.mini_width - 24
-            self.root.geometry(f"{self.mini_width}x{self.mini_height}+{pos_x_mini}+{self.pos_y}")
+            # Semi-transparent window background
+            try:
+                self.root.attributes("-alpha", 0.94)
+            except Exception:
+                pass
 
-            # Minimalist Modern Studio Palette (Clean Slate / Graphite)
+            self.screen_width = self.root.winfo_screenwidth()
+            pos_x_mini = self.screen_width - self.circle_size - 24
+            self.root.geometry(f"{self.circle_size}x{self.circle_size}+{pos_x_mini}+{self.pos_y}")
+
+            # Minimalist Modern Studio Palette (Obsidian & Charcoal)
             bg_dark = "#18181b"       # Neutral obsidian matte
             card_bg = "#27272a"       # Clean dark slate
             border_subtle = "#3f3f46" # 1px hairline border
@@ -75,35 +84,35 @@ class OverlayHUD:
 
             self.root.configure(bg=bg_dark)
 
-            # Outer subtle border container
+            # Outer border container
             self.main_container = tk.Frame(self.root, bg=bg_dark, highlightbackground=border_subtle, highlightthickness=1)
             self.main_container.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
-            # ==========================================
-            # 1. MINI LOGO BADGE (Idle State - Minimal Pill)
-            # ==========================================
-            self.mini_frame = tk.Frame(self.main_container, bg=card_bg, cursor="hand2")
-            self.mini_frame.pack(fill=tk.BOTH, expand=True)
+            # ========================================================
+            # 1. CIRCULAR TRANSPARENT LOGO ORB (Idle State)
+            # ========================================================
+            self.circle_canvas = tk.Canvas(
+                self.main_container,
+                width=self.circle_size,
+                height=self.circle_size,
+                bg=bg_dark,
+                highlightthickness=0,
+                cursor="hand2"
+            )
+            self.circle_canvas.pack(fill=tk.BOTH, expand=True)
 
-            self.mini_dot = tk.Label(self.mini_frame, text="●", fg="#10b981", bg=card_bg, font=("Helvetica", 9))
-            self.mini_dot.pack(side=tk.LEFT, padx=(10, 4))
+            # Minimalist circular emblem
+            self.orb_outer = self.circle_canvas.create_oval(3, 3, 51, 51, fill="#24242b", outline="#3f3f46", width=1.5)
+            self.orb_ring = self.circle_canvas.create_oval(7, 7, 47, 47, outline="#10b981", width=1.2)
+            self.orb_text = self.circle_canvas.create_text(27, 26, text="⬡", fill="#ffffff", font=("Helvetica", 15, "bold"))
+            self.orb_pip = self.circle_canvas.create_oval(36, 36, 46, 46, fill="#10b981", outline="#18181b", width=1.5)
 
-            self.mini_logo = tk.Label(self.mini_frame, text="AEGIS", fg=text_primary, bg=card_bg, font=("Helvetica", 9, "bold"))
-            self.mini_logo.pack(side=tk.LEFT, padx=(0, 4))
+            # Click circular logo to expand
+            self.circle_canvas.bind("<Button-1>", lambda e: self.start_animation(True))
 
-            self.mini_status = tk.Label(self.mini_frame, text=self.node_id, fg=text_muted, bg=card_bg, font=("Consolas", 8))
-            self.mini_status.pack(side=tk.LEFT, padx=(2, 6))
-
-            self.mini_expand_icon = tk.Label(self.mini_frame, text="▾", fg="#71717a", bg=card_bg, font=("Helvetica", 8))
-            self.mini_expand_icon.pack(side=tk.RIGHT, padx=(0, 10))
-
-            # Click to toggle expand
-            for w in [self.mini_frame, self.mini_dot, self.mini_logo, self.mini_status, self.mini_expand_icon]:
-                w.bind("<Button-1>", lambda e: self.toggle_expand())
-
-            # ==========================================
-            # 2. FULL HUD SCREEN (Active State - Clean Studio)
-            # ==========================================
+            # ========================================================
+            # 2. FULL CONSOLE HUD (Expanded State)
+            # ========================================================
             self.full_frame = tk.Frame(self.main_container, bg=bg_dark)
 
             # Header
@@ -116,10 +125,10 @@ class OverlayHUD:
             title_lbl = tk.Label(hdr, text=f"AEGIS Studio  •  {self.node_name}", fg=text_primary, bg=card_bg, font=("Helvetica", 9, "bold"))
             title_lbl.pack(side=tk.LEFT)
 
-            # Collapse button [ — ]
+            # Minimal collapse button [ — ]
             collapse_btn = tk.Label(hdr, text="—", fg=text_muted, bg=card_bg, cursor="hand2", font=("Helvetica", 10, "bold"))
             collapse_btn.pack(side=tk.RIGHT, padx=(4, 10))
-            collapse_btn.bind("<Button-1>", lambda e: self.set_expanded(False))
+            collapse_btn.bind("<Button-1>", lambda e: self.start_animation(False))
 
             self.status_lbl = tk.Label(hdr, text="ONLINE", fg="#10b981", bg=card_bg, font=("Helvetica", 8, "bold"))
             self.status_lbl.pack(side=tk.RIGHT, padx=4)
@@ -165,11 +174,13 @@ class OverlayHUD:
             self.log_text.pack(fill=tk.BOTH, expand=True)
             self.log_text.insert(tk.END, "AEGIS Autonomous Agent Online.\nConnected via Reverse-Heartbeat to Gateway.\n")
 
-            # Enable window drag
-            self._bind_drag(self.mini_frame)
+            # Enable window dragging on both circular orb and header
+            self._bind_drag(self.circle_canvas)
             self._bind_drag(hdr)
 
+            # Start breathing pulse loop and queue processor
             self.root.after(100, self._process_queue)
+            self.root.after(1200, self._pulse_loop)
             self.root.mainloop()
         except Exception as e:
             print(f"[OverlayHUD] GUI error: {e}")
@@ -183,41 +194,79 @@ class OverlayHUD:
         self._drag_y = event.y
 
     def _on_drag_motion(self, event):
-        if self.root:
+        if self.root and not self.is_animating:
             x = self.root.winfo_x() - self._drag_x + event.x
             y = self.root.winfo_y() - self._drag_y + event.y
             self.root.geometry(f"+{x}+{y}")
 
+    def _pulse_loop(self):
+        """Gentle breathing animation for the circular logo orb when idle."""
+        if not self.root:
+            return
+        if not self.is_expanded and not self.is_animating:
+            self.pulse_phase = not self.pulse_phase
+            base_col = "#10b981" if self.current_status in ["ONLINE", "READY"] else "#f59e0b"
+            dim_col = "#047857" if self.current_status in ["ONLINE", "READY"] else "#b45309"
+            cur = base_col if self.pulse_phase else dim_col
+            self.circle_canvas.itemconfig(self.orb_ring, outline=cur)
+            self.circle_canvas.itemconfig(self.orb_pip, fill=cur)
+        self.root.after(1200, self._pulse_loop)
+
     def toggle_expand(self):
-        self.set_expanded(not self.is_expanded)
+        self.start_animation(not self.is_expanded)
 
     def set_expanded(self, expand: bool):
         self.log_queue.put(("expand", expand))
 
-    def _apply_expansion(self, expand: bool):
-        if not self.root:
+    def start_animation(self, target_expanded: bool):
+        """Smooth animated cubic-ease transition between circular logo and full HUD."""
+        if self.is_animating or self.is_expanded == target_expanded:
             return
-        self.is_expanded = expand
+
+        self.is_animating = True
+        self.target_expanded = target_expanded
+
+        if target_expanded:
+            self.circle_canvas.pack_forget()
+            self.full_frame.pack(fill=tk.BOTH, expand=True)
+            start_w, start_h = self.circle_size, self.circle_size
+            end_w, end_h = self.full_width, self.full_height
+        else:
+            self.full_frame.pack_forget()
+            self.circle_canvas.pack(fill=tk.BOTH, expand=True)
+            start_w, start_h = self.full_width, self.full_height
+            end_w, end_h = self.circle_size, self.circle_size
+
+        self._step_animation(1, 14, start_w, end_w, start_h, end_h)
+
+    def _step_animation(self, step, total_steps, start_w, end_w, start_h, end_h):
+        if not self.root:
+            self.is_animating = False
+            return
+
+        t = step / float(total_steps)
+        # Cubic ease-out formula
+        ease = 1.0 - math.pow(1.0 - t, 3)
+
+        w = int(start_w + (end_w - start_w) * ease)
+        h = int(start_h + (end_h - start_h) * ease)
         current_x = self.root.winfo_x()
         current_y = self.root.winfo_y()
+        pos_x = min(current_x, self.screen_width - w - 16)
 
-        border = "#f59e0b" if self.current_status == "BUSY" else "#3f3f46"
-        if expand:
-            pos_x = min(current_x, self.screen_width - self.full_width - 12)
-            self.root.geometry(f"{self.full_width}x{self.full_height}+{pos_x}+{current_y}")
-            self.mini_frame.pack_forget()
-            self.full_frame.pack(fill=tk.BOTH, expand=True)
-            self.main_container.configure(highlightbackground=border)
+        self.root.geometry(f"{w}x{h}+{pos_x}+{current_y}")
+
+        if step < total_steps:
+            self.root.after(14, self._step_animation, step + 1, total_steps, start_w, end_w, start_h, end_h)
         else:
-            pos_x = min(current_x, self.screen_width - self.mini_width - 12)
-            self.root.geometry(f"{self.mini_width}x{self.mini_height}+{pos_x}+{current_y}")
-            self.full_frame.pack_forget()
-            self.mini_frame.pack(fill=tk.BOTH, expand=True)
+            self.is_expanded = self.target_expanded
+            self.is_animating = False
+            border = "#f59e0b" if self.current_status == "BUSY" else "#3f3f46"
             self.main_container.configure(highlightbackground=border)
 
     def _auto_collapse_if_idle(self):
         if self.current_status in ["ONLINE", "READY"] and self.is_expanded:
-            self._apply_expansion(False)
+            self.start_animation(False)
 
     def append_log(self, text: str):
         self.log_queue.put(("log", text))
@@ -239,7 +288,7 @@ class OverlayHUD:
             while not self.log_queue.empty():
                 kind, data = self.log_queue.get_nowait()
                 if kind == "expand":
-                    self._apply_expansion(data)
+                    self.start_animation(data)
                 elif kind == "log":
                     self.log_text.insert(tk.END, data)
                     self.log_text.see(tk.END)
@@ -254,13 +303,13 @@ class OverlayHUD:
                     if title:
                         self.task_lbl.configure(text=f"Task: {title}")
 
-                    # Update Mini Badge labels
-                    self.mini_status.configure(text=self.current_status, fg=color)
-                    self.mini_dot.configure(fg=color)
+                    # Update Circular Logo Pip color
+                    self.circle_canvas.itemconfig(self.orb_pip, fill=color)
+                    self.circle_canvas.itemconfig(self.orb_ring, outline=color)
 
-                    # Dynamic behavior: Enlarge on BUSY, auto-collapse after idle
+                    # Dynamic animation: Enlarge on BUSY, auto-minimise to circular logo after idle
                     if self.current_status == "BUSY":
-                        self._apply_expansion(True)
+                        self.start_animation(True)
                     elif self.current_status in ["ONLINE", "READY"]:
                         if self.root:
                             self.root.after(7000, self._auto_collapse_if_idle)
@@ -270,29 +319,25 @@ class OverlayHUD:
                 elif kind == "warning":
                     self.status_lbl.configure(text="ALERT", fg="#ef4444")
                     self.status_dot.configure(fg="#ef4444")
-                    self.mini_status.configure(text="ALERT", fg="#ef4444")
-                    self.mini_dot.configure(fg="#ef4444")
+                    self.circle_canvas.itemconfig(self.orb_pip, fill="#ef4444")
                     self.log_text.insert(tk.END, f"\n⚠️ [GATEWAY ALERT] {data}\n")
                     self.log_text.see(tk.END)
-                    self._apply_expansion(True)
+                    self.start_animation(True)
                 elif kind == "locked":
                     locked, reason = data
                     if locked:
                         self.status_lbl.configure(text="LOCKED", fg="#dc2626")
                         self.status_dot.configure(fg="#dc2626")
-                        self.mini_status.configure(text="LOCKED", fg="#dc2626")
-                        self.mini_dot.configure(fg="#dc2626")
+                        self.circle_canvas.itemconfig(self.orb_pip, fill="#dc2626")
                         self.task_lbl.configure(text=f"NODE LOCKED: {reason or 'Administrative Lock'}")
                         self.log_text.insert(tk.END, f"\n🔒 [STATION LOCKED] {reason}\n")
-                        self._apply_expansion(True)
+                        self.start_animation(True)
                     else:
                         self.status_lbl.configure(text="READY", fg="#10b981")
                         self.status_dot.configure(fg="#10b981")
-                        self.mini_status.configure(text="READY", fg="#10b981")
-                        self.mini_dot.configure(fg="#10b981")
-                        self.task_lbl.configure(text="Listening for coordinator assignments...")
+                        self.circle_canvas.itemconfig(self.orb_pip, fill="#10b981")
+                        self.task_lbl.configure(text="Idle • Ready for tasks")
                         self.log_text.insert(tk.END, f"\n🔓 [STATION UNLOCKED]\n")
-                    self.log_text.see(tk.END)
         except Exception:
             pass
         if self.root:
