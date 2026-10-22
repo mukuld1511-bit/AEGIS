@@ -362,19 +362,26 @@ if HAS_PYQT:
             self.log_queue = queue.Queue()
 
         def start_hud_thread(self):
-            t = threading.Thread(target=self._run_qt, daemon=True)
-            t.start()
+            # Handled via run_main_loop on main thread
+            pass
 
-        def _run_qt(self):
+        def run_main_loop(self, worker_func):
+            """Executes QApplication on the main thread (required by Qt/X11)."""
             try:
                 app = QApplication.instance()
                 if not app:
                     app = QApplication([sys.argv[0]])
                 self.widget = PyQtHUDWidget(node_id=self.node_id, node_name=self.node_name, shared_queue=self.log_queue)
                 self.widget.show()
-                app.exec_()
+
+                t = threading.Thread(target=worker_func, daemon=True)
+                t.start()
+
+                sys.exit(app.exec_())
             except Exception as e:
                 print(f"[!] PyQt HUD exception: {e}")
+                # Fallback to worker loop if GUI fails
+                worker_func()
 
         def append_log(self, text: str, tag: str = ""):
             self.log_queue.put(("log", (text, tag)))
@@ -896,8 +903,7 @@ class DGXStandaloneAgent:
 
                 if HAS_PYQT:
                     self.hud = PyQtOverlayHUD(node_id=self.node_id, node_name=f"DGX Spark {self.node_id}")
-                    self.hud.start_hud_thread()
-                    print(f"[✓] PyQt5 Translucent Animated Orb HUD activated on DISPLAY {os.environ.get('DISPLAY', ':0')}")
+                    print(f"[✓] PyQt5 Translucent Animated Orb HUD ready on DISPLAY {os.environ.get('DISPLAY', ':0')}")
                 elif HAS_TK:
                     self.hud = OverlayHUD(node_id=self.node_id, node_name=f"DGX Spark {self.node_id}")
                     self.hud.start_hud_thread()
@@ -1207,7 +1213,17 @@ class DGXStandaloneAgent:
         elif cmd_type == "execute_task":
             self.execute_task(payload)
 
+    def start(self):
+        self.start_polling()
+
     def start_polling(self):
+        """Starts agent. If PyQt HUD is active, runs Qt on main thread and polling in a worker thread."""
+        if self.hud and hasattr(self.hud, "run_main_loop"):
+            self.hud.run_main_loop(self._polling_loop)
+        else:
+            self._polling_loop()
+
+    def _polling_loop(self):
         print("=" * 65)
         print(f" [AEGIS DGX STANDALONE AGENT] Active: {self.node_id}")
         print(f" Gateway URL:   {self.gateway_url} (Outbound HTTPS Polling)")
