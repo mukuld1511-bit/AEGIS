@@ -33,8 +33,11 @@ except ImportError:
     HAS_TK = False
 
 class OverlayHUD:
-    """Floating tactile Light Claymorphism HUD: 3D inflated porcelain clay orb with purple atom motif,
-    smoothly spring-animating into an inflated clay tablet console.
+    """Floating Transparent Glassmorphic HUD with glowing Purple Atom Motif:
+    - Large 3D translucent frosted glass orb (100px) with true transparency.
+    - Luminous purple atomic orbitals with rotating electrons & glowing nucleus.
+    - Damped spring-elastic expansion into a large, spacious glassmorphic console (620x430).
+    - Inset frosted glass panels, glowing telemetry, and real-time code stream.
     """
     def __init__(self, node_id: str = "dgx-node-1", node_name: str = "DGX Spark 01"):
         self.node_id = node_id
@@ -47,9 +50,10 @@ class OverlayHUD:
         self.pulse_phase = False
         self.atom_phase = 0.0
 
-        self.circle_size = 64
-        self.full_width = 460
-        self.full_height = 310
+        # Bigger UI element dimensions
+        self.circle_size = 100
+        self.full_width = 620
+        self.full_height = 430
         self.pos_y = 24
         self.screen_width = 1920
         self._drag_x = 0
@@ -67,178 +71,191 @@ class OverlayHUD:
             self.root.overrideredirect(True) # Borderless floating window
             self.root.attributes("-topmost", True) # Always on top
 
+            # Transparent Chroma-Key & Glassmorphic Translucency
+            trans_col = "#000001"
+            self.root.configure(bg=trans_col)
             try:
-                self.root.attributes("-alpha", 0.97)
+                self.root.wm_attributes("-transparentcolor", trans_col)
+            except Exception:
+                pass
+            try:
+                self.root.attributes("-alpha", 0.88)
             except Exception:
                 pass
 
             self.screen_width = self.root.winfo_screenwidth()
-            pos_x_mini = self.screen_width - self.circle_size - 24
+            pos_x_mini = self.screen_width - self.circle_size - 28
             self.root.geometry(f"{self.circle_size}x{self.circle_size}+{pos_x_mini}+{self.pos_y}")
 
-            # Light Claymorphism Palette (Porcelain white clay / lavender accents / crisp slate)
-            bg_clay = "#f1f5f9"         # Soft porcelain clay canvas
-            card_clay = "#ffffff"       # Inflated pure white clay card
-            shadow_ambient = "#cbd5e1"  # Soft diffuse ambient clay shadow
-            shadow_border = "#e2e8f0"   # Pillowy clay border rim
-            recessed_tray = "#f8fafc"   # Inset light ceramic trough
-            text_primary = "#0f172a"    # Crisp charcoal text
-            text_secondary = "#334155"  # Dark slate
-            text_muted = "#64748b"      # Soft slate subtext
-            accent_purple = "#7c3aed"   # Radiant purple / violet (from Atom motif)
-            accent_lavender = "#ede9fe" # Soft lavender pill background
+            # Glassmorphism Color Palette
+            glass_bg = "#f8f7ff"         # Frosted lavender glass canvas
+            glass_card = "#ffffff"       # Translucent pristine glass card
+            glass_border = "#c4b5fd"     # Specular glass border rim
+            shadow_ambient = "#ddd6fe"   # Soft ambient violet-tinted glass shadow
+            shadow_glow = "#e0e7ff"      # Outer glass refraction glow
+            recessed_tray = "#ffffff"    # Frosted glass trough
+            text_primary = "#0f172a"     # Crisp charcoal text
+            text_secondary = "#334155"   # Dark slate
+            text_muted = "#64748b"       # Soft slate subtext
+            accent_purple = "#7c3aed"    # Radiant purple / violet (from Atom motif)
+            accent_lavender = "#ede9fe"  # Frosted lavender badge pill
 
-            self.root.configure(bg=bg_clay)
-
-            # Outer inflated clay border container
-            self.main_container = tk.Frame(self.root, bg=bg_clay, highlightbackground=shadow_border, highlightthickness=1.5)
+            # Outer border container
+            self.main_container = tk.Frame(self.root, bg=trans_col)
             self.main_container.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
             # ========================================================
-            # 1. 3D LIGHT CLAY ORB WITH PURPLE ATOM MOTIF (Idle State)
+            # 1. 3D TRANSPARENT GLASS ORB WITH PURPLE ATOM (Idle State)
             # ========================================================
             self.circle_canvas = tk.Canvas(
                 self.main_container,
                 width=self.circle_size,
                 height=self.circle_size,
-                bg=bg_clay,
+                bg=trans_col,
                 highlightthickness=0,
                 cursor="hand2"
             )
             self.circle_canvas.pack(fill=tk.BOTH, expand=True)
 
-            # 3D Layered Clay Shading:
-            # 1. Ambient soft drop shadows
-            self.circle_canvas.create_oval(4, 7, 60, 63, fill=shadow_ambient, outline="")
-            self.circle_canvas.create_oval(3, 5, 59, 61, fill="#e2e8f0", outline="")
-            # 2. Main inflated white clay body
-            self.orb_body = self.circle_canvas.create_oval(2, 2, 58, 58, fill=card_clay, outline="#e2e8f0", width=1.5)
-            # 3. Top-left soft specular dome highlight (inflated 3D dome look)
-            self.circle_canvas.create_oval(14, 5, 28, 12, fill="#ffffff", outline="")
+            # Glassmorphic Ambient Diffuse Shadow & Glow
+            self.circle_canvas.create_oval(6, 9, 94, 97, fill=shadow_ambient, outline="")
+            self.circle_canvas.create_oval(5, 7, 95, 95, fill=shadow_glow, outline="")
 
-            # 4. Purple Atom Motif (Directly inspired by glowing purple atom reference)
-            cx, cy = 30, 30
+            # Main Frosted Glass Orb Body (100px diameter)
+            self.orb_body = self.circle_canvas.create_oval(4, 4, 96, 96, fill=glass_card, outline=glass_border, width=1.8)
+
+            # Specular Glass Gleam & Refraction Arc
+            self.circle_canvas.create_oval(18, 8, 48, 22, fill="#ffffff", outline="")
+            self.circle_canvas.create_arc(8, 8, 92, 92, start=100, extent=65, style="arc", outline="#ffffff", width=2.5)
+
+            # Purple Atom Orbital Rings (Scaled up: a=32, b=12)
+            cx, cy = 50, 50
             orbit_colors = ["#8b5cf6", "#9333ea", "#7c3aed"]
             for idx, angle_deg in enumerate(self.orbits):
                 rad = math.radians(angle_deg)
                 pts = []
-                for step in range(36):
-                    t = 2 * math.pi * step / 36.0
-                    x = cx + 19 * math.cos(t) * math.cos(rad) - 7.5 * math.sin(t) * math.sin(rad)
-                    y = cy + 19 * math.cos(t) * math.sin(rad) + 7.5 * math.sin(t) * math.cos(rad)
+                for step in range(48):
+                    t = 2 * math.pi * step / 48.0
+                    x = cx + 32 * math.cos(t) * math.cos(rad) - 12 * math.sin(t) * math.sin(rad)
+                    y = cy + 32 * math.cos(t) * math.sin(rad) + 12 * math.sin(t) * math.cos(rad)
                     pts.extend([x, y])
                 pts.extend([pts[0], pts[1]])
-                self.circle_canvas.create_line(pts, fill=orbit_colors[idx], width=1.4, smooth=True)
+                self.circle_canvas.create_line(pts, fill=orbit_colors[idx], width=1.8, smooth=True)
 
-            # 5. Glowing purple nucleus vortex
-            self.circle_canvas.create_oval(cx - 7, cy - 7, cx + 7, cy + 7, fill="#ede9fe", outline="")  # Lavender corona
-            self.circle_canvas.create_oval(cx - 4.5, cy - 4.5, cx + 4.5, cy + 4.5, fill="#8b5cf6", outline="")  # Purple halo
-            self.circle_canvas.create_oval(cx - 2.5, cy - 2.5, cx + 2.5, cy + 2.5, fill="#7c3aed", outline="")  # Deep violet core
-            self.circle_canvas.create_oval(cx - 1, cy - 1, cx + 1, cy + 1, fill="#ffffff", outline="")  # White spark
+            # Glowing Purple Nucleus Vortex (Multi-layer radiant corona)
+            self.circle_canvas.create_oval(cx - 12, cy - 12, cx + 12, cy + 12, fill="#ede9fe", outline="")  # Lavender corona
+            self.circle_canvas.create_oval(cx - 8, cy - 8, cx + 8, cy + 8, fill="#c084fc", outline="")  # Lilac mid glow
+            self.circle_canvas.create_oval(cx - 5, cy - 5, cx + 5, cy + 5, fill="#7c3aed", outline="")  # Deep violet core
+            self.circle_canvas.create_oval(cx - 2, cy - 2, cx + 2, cy + 2, fill="#ffffff", outline="")  # Brilliant center star
 
-            # 6. Embedded 3D tactile status gem (pip)
-            self.circle_canvas.create_oval(42, 42, 54, 54, fill=shadow_ambient, outline="")
-            self.orb_pip = self.circle_canvas.create_oval(41, 41, 53, 53, fill="#10b981", outline="#34d399", width=1)
-            self.circle_canvas.create_oval(44, 43, 47, 46, fill="#ffffff", outline="")
+            # Tactile Glass Status Pip (Gem Bead at bottom-right)
+            self.circle_canvas.create_oval(68, 68, 88, 88, fill=shadow_ambient, outline="")
+            self.orb_pip = self.circle_canvas.create_oval(69, 69, 87, 87, fill="#10b981", outline="#34d399", width=1.5)
+            self.circle_canvas.create_oval(73, 71, 78, 76, fill="#ffffff", outline="")
 
             # Initial draw of revolving electrons
             self._update_atom_electrons()
 
-            # Click circular clay orb to spring-expand
+            # Click circular glass orb to spring-expand
             self.circle_canvas.bind("<Button-1>", lambda e: self.start_animation(True))
 
             # ========================================================
-            # 2. 3D LIGHT CLAY TABLET CONSOLE (Expanded State)
+            # 2. BIGGER TRANSPARENT GLASS CONSOLE (Expanded State)
             # ========================================================
-            self.full_frame = tk.Frame(self.main_container, bg=bg_clay)
+            self.full_frame = tk.Frame(
+                self.main_container,
+                bg=glass_bg,
+                highlightbackground=glass_border,
+                highlightthickness=1.5
+            )
 
-            # Embossed White Clay Header
-            hdr = tk.Frame(self.full_frame, bg=card_clay, height=38)
+            # Frosted Glass Header (Height 44px)
+            hdr = tk.Frame(self.full_frame, bg=glass_card, height=44)
             hdr.pack(fill=tk.X, padx=0, pady=0)
 
-            atom_icon = tk.Label(hdr, text="⚛", fg=accent_purple, bg=card_clay, font=("Helvetica", 13, "bold"))
-            atom_icon.pack(side=tk.LEFT, padx=(10, 4))
+            atom_icon = tk.Label(hdr, text="⚛", fg=accent_purple, bg=glass_card, font=("Helvetica", 16, "bold"))
+            atom_icon.pack(side=tk.LEFT, padx=(12, 6))
 
-            title_lbl = tk.Label(hdr, text=f"AEGIS Studio  •  {self.node_name}", fg=text_primary, bg=card_clay, font=("Helvetica", 9, "bold"))
+            title_lbl = tk.Label(hdr, text=f"AEGIS Studio  •  {self.node_name}", fg=text_primary, bg=glass_card, font=("Helvetica", 11, "bold"))
             title_lbl.pack(side=tk.LEFT)
 
-            # Tactile Pill Button for collapse [ — ]
+            # Tactile Glass Pill Button for collapse [ — ]
             collapse_btn = tk.Label(
                 hdr,
-                text=" — ",
+                text="  —  ",
                 fg=text_muted,
                 bg="#f1f5f9",
                 cursor="hand2",
-                font=("Helvetica", 9, "bold"),
-                padx=8,
-                pady=2,
+                font=("Helvetica", 10, "bold"),
+                padx=10,
+                pady=3,
                 relief="flat",
                 highlightbackground="#e2e8f0",
                 highlightthickness=1
             )
-            collapse_btn.pack(side=tk.RIGHT, padx=(4, 8))
+            collapse_btn.pack(side=tk.RIGHT, padx=(4, 10))
             collapse_btn.bind("<Button-1>", lambda e: self.start_animation(False))
 
-            # Rounded lavender status pill
-            pill_frame = tk.Frame(hdr, bg=accent_lavender, padx=8, pady=2)
+            # Rounded lavender glass status pill
+            pill_frame = tk.Frame(hdr, bg=accent_lavender, padx=10, pady=3)
             pill_frame.pack(side=tk.RIGHT, padx=4)
 
-            self.status_dot = tk.Label(pill_frame, text="●", fg="#10b981", bg=accent_lavender, font=("Helvetica", 8))
+            self.status_dot = tk.Label(pill_frame, text="●", fg="#10b981", bg=accent_lavender, font=("Helvetica", 9))
             self.status_dot.pack(side=tk.LEFT)
 
-            self.status_lbl = tk.Label(pill_frame, text="ONLINE", fg=accent_purple, bg=accent_lavender, font=("Helvetica", 8, "bold"))
-            self.status_lbl.pack(side=tk.LEFT, padx=(3, 0))
+            self.status_lbl = tk.Label(pill_frame, text="ONLINE", fg=accent_purple, bg=accent_lavender, font=("Helvetica", 9, "bold"))
+            self.status_lbl.pack(side=tk.LEFT, padx=(4, 0))
 
             # Body Container
-            body = tk.Frame(self.full_frame, bg=bg_clay)
-            body.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
+            body = tk.Frame(self.full_frame, bg=glass_bg)
+            body.pack(fill=tk.BOTH, expand=True, padx=12, pady=8)
 
-            # Recessed Light Ceramic Trough for Telemetry
-            telem_box = tk.Frame(body, bg=recessed_tray, highlightbackground=shadow_border, highlightthickness=1)
-            telem_box.pack(fill=tk.X, padx=0, pady=(0, 4))
+            # Frosted Glass Trough for Telemetry
+            telem_box = tk.Frame(body, bg=recessed_tray, highlightbackground="#ddd6fe", highlightthickness=1)
+            telem_box.pack(fill=tk.X, padx=0, pady=(0, 6))
 
             self.telem_lbl = tk.Label(
                 telem_box,
                 text="GPU 0%  •  VRAM 0.0/128 GB  •  35°C",
                 fg=text_secondary,
                 bg=recessed_tray,
-                font=("Consolas", 8),
-                pady=3
+                font=("Consolas", 10),
+                pady=4
             )
-            self.telem_lbl.pack(anchor="w", padx=6)
+            self.telem_lbl.pack(anchor="w", padx=8)
 
-            # Task info
+            # Task banner
             self.task_lbl = tk.Label(
                 body,
                 text="Idle • Ready for assignments",
                 fg=text_muted,
-                bg=bg_clay,
-                font=("Helvetica", 8),
-                wraplength=440,
+                bg=glass_bg,
+                font=("Helvetica", 10),
+                wraplength=580,
                 justify="left"
             )
-            self.task_lbl.pack(anchor="w", padx=2, pady=(0, 4))
+            self.task_lbl.pack(anchor="w", padx=2, pady=(0, 6))
 
-            # Recessed White Clay Code Console
+            # Frosted Glass Code Console (Height 13 lines, 10pt font)
             self.log_text = tk.Text(
                 body,
-                bg=card_clay,
+                bg=glass_card,
                 fg=text_primary,
                 insertbackground=accent_purple,
                 selectbackground="#ddd6fe",
                 selectforeground="#0f172a",
-                font=("Consolas", 8),
-                height=11,
+                font=("Consolas", 10),
+                height=13,
                 wrap="char",
                 borderwidth=0,
                 highlightthickness=1,
-                highlightbackground=shadow_border
+                highlightbackground="#ddd6fe"
             )
             self.log_text.pack(fill=tk.BOTH, expand=True)
 
-            self.log_text.tag_configure("purple", foreground=accent_purple, font=("Consolas", 8, "bold"))
-            self.log_text.tag_configure("green", foreground="#059669")
-            self.log_text.tag_configure("red", foreground="#dc2626")
+            self.log_text.tag_configure("purple", foreground=accent_purple, font=("Consolas", 10, "bold"))
+            self.log_text.tag_configure("green", foreground="#059669", font=("Consolas", 10, "bold"))
+            self.log_text.tag_configure("red", foreground="#dc2626", font=("Consolas", 10, "bold"))
             self.log_text.tag_configure("amber", foreground="#d97706")
             self.log_text.tag_configure("muted", foreground="#64748b")
 
@@ -276,21 +293,21 @@ class OverlayHUD:
         if not self.root or self.is_expanded:
             return
         self.circle_canvas.delete("atom_electron")
-        cx, cy = 30, 30
-        a, b = 19, 7.5
+        cx, cy = 50, 50
+        a, b = 32, 12
         for idx, angle_deg in enumerate(self.orbits):
             rad = math.radians(angle_deg)
             t_el = self.atom_phase + idx * (2 * math.pi / 3.0)
             x_el = cx + a * math.cos(t_el) * math.cos(rad) - b * math.sin(t_el) * math.sin(rad)
             y_el = cy + a * math.cos(t_el) * math.sin(rad) + b * math.sin(t_el) * math.cos(rad)
-            # Electron lilac glow
+            # Electron lilac glow aura
             self.circle_canvas.create_oval(
-                x_el - 3, y_el - 3, x_el + 3, y_el + 3,
+                x_el - 5, y_el - 5, x_el + 5, y_el + 5,
                 fill="#c084fc", outline="", tags="atom_electron"
             )
-            # Electron white core
+            # Electron brilliant white core
             self.circle_canvas.create_oval(
-                x_el - 1.5, y_el - 1.5, x_el + 1.5, y_el + 1.5,
+                x_el - 2.5, y_el - 2.5, x_el + 2.5, y_el + 2.5,
                 fill="#ffffff", outline="", tags="atom_electron"
             )
 
@@ -305,7 +322,7 @@ class OverlayHUD:
         self.root.after(70, self._atom_tick)
 
     def _pulse_loop(self):
-        """Tactile gentle pulse on the 3D clay bead status pip."""
+        """Tactile gentle pulse on the glass bead status pip."""
         if not self.root:
             return
         if not self.is_expanded and not self.is_animating:
@@ -323,7 +340,7 @@ class OverlayHUD:
         self.log_queue.put(("expand", expand))
 
     def start_animation(self, target_expanded: bool):
-        """Claymorphic spring-elastic expansion / minimization."""
+        """Spring-elastic expansion / minimization between glass orb and console."""
         if self.is_animating or self.is_expanded == target_expanded:
             return
 
@@ -349,7 +366,7 @@ class OverlayHUD:
             return
 
         t = step / float(total_steps)
-        # Clay spring damped oscillation (soft tactile squish & settle)
+        # Damped spring oscillation (soft tactile glass squish & settle)
         if step == total_steps:
             ease = 1.0
         else:
@@ -368,8 +385,8 @@ class OverlayHUD:
         else:
             self.is_expanded = self.target_expanded
             self.is_animating = False
-            border = "#7c3aed" if self.current_status == "BUSY" else ("#10b981" if self.current_status in ["ONLINE", "READY"] else "#cbd5e1")
-            self.main_container.configure(highlightbackground=border)
+            border = "#7c3aed" if self.current_status == "BUSY" else ("#10b981" if self.current_status in ["ONLINE", "READY"] else "#c4b5fd")
+            self.full_frame.configure(highlightbackground=border)
 
     def _auto_collapse_if_idle(self):
         if self.current_status in ["ONLINE", "READY"] and self.is_expanded:
