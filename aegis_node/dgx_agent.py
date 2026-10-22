@@ -283,6 +283,8 @@ class DGXStandaloneAgent:
 
         cpu_pct = 5.0
         ram_pct = 15.0
+        ram_used_gb = 16.0
+        ram_total_gb = 128.0
         try:
             with open("/proc/loadavg", "r") as f:
                 cpu_pct = min(100.0, float(f.read().split()[0]) * 10.0)
@@ -290,11 +292,15 @@ class DGXStandaloneAgent:
                 lines = f.readlines()
                 total = int([l for l in lines if "MemTotal" in l][0].split()[1])
                 avail = int([l for l in lines if "MemAvailable" in l][0].split()[1])
+                ram_total_gb = round(total / 1024 / 1024, 1)
+                ram_used_gb = round((total - avail) / 1024 / 1024, 1)
                 ram_pct = round(((total - avail) / total) * 100, 1)
         except Exception:
             pass
 
         return {
+            "pc_id": self.node_id,
+            "lab_id": "DGX-CLUSTER",
             "node_id": self.node_id,
             "name": f"DGX Spark {self.node_id}",
             "ip": "127.0.0.1",
@@ -302,11 +308,16 @@ class DGXStandaloneAgent:
             "current_task_id": self.current_task_id,
             "cpu_percent": cpu_pct,
             "ram_percent": ram_pct,
+            "ram_used_gb": ram_used_gb,
+            "ram_total_gb": ram_total_gb,
             "gpu": gpu,
+            "gpu_name": gpu.get("name", "NVIDIA DGX"),
+            "gpu_percent": gpu.get("utilization_pct", 0.0),
+            "gpu_temp": gpu.get("temperature_c", 0.0),
             "active_model": self.default_model,
             "capabilities": ["code_generation", "code_review", "data_analysis"],
             "active_window": self.get_active_window(),
-            "idle_time_seconds": self.get_idle_seconds(),
+            "idle_seconds": int(self.get_idle_seconds()),
             "client_type": "dgx",
             "os_platform": "linux",
             "last_heartbeat": datetime.now(timezone.utc).isoformat()
@@ -473,13 +484,51 @@ class DGXStandaloneAgent:
         while self.is_running:
             telem = self.build_telemetry()
             for gw in gateways:
-                res = http_post_json(f"{gw}/api/client/heartbeat", telem, timeout=5.0)
-                if res.get("status") == "acknowledged":
-                    if res.get("has_command"):
-                        self.handle_command(res["command"])
-                    elif res.get("has_task"):
-                        self.execute_task(res["task"])
-                    break
+                # Try Pi /api/heartbeat first, fallback to /api/client/heartbeat
+                for ep in ["/api/heartbeat", "/api/client/heartbeat"]:
+                    res = http_post_json(f"{gw}{ep}", telem, timeout=15.0)
+                    if "error" in res and "405" in res["error"]:
+                        continue  # Wrong endpoint method, try next
+                    if "error" in res and "timed out" in res["error"]:
+                        # Normal long-polling cycle completed
+                        break
+
+                    # 1. Pi Gateway format: {"status": "ok", "command": ...}
+                    cmd = res.get("command")
+                    if cmd:
+                        if isinstance(cmd, dict):
+                            self.handle_command(cmd)
+                        elif isinstance(cmd, str):
+                            # Try parsing as JSON command
+                            try:
+                                parsed = json.loads(cmd)
+                                if isinstance(parsed, dict) and "command_type" in parsed:
+                                    self.handle_command(parsed)
+                                    break
+                            except Exception:
+                                pass
+
+                            # Check for simple supervisor commands
+                            if cmd.startswith("warn:"):
+                                self.handle_command({"command_type": "warn", "payload": {"message": cmd[5:].strip()}})
+                            elif cmd in ["lock", "lock:now"]:
+                                self.handle_command({"command_type": "lock", "payload": {"reason": "Remote lock"}})
+                            elif cmd in ["unlock", "unlock:now"]:
+                                self.handle_command({"command_type": "unlock", "payload": {}})
+                            else:
+                                # String prompt to execute on local GPU!
+                                print(f"[{self.node_id}] Received prompt task from Gateway: {cmd}")
+                                self.execute_task({"prompt": cmd, "task_id": f"tsk_{int(time.time())}"})
+                        break
+                    elif res.get("status") == "acknowledged":
+                        if res.get("has_command"):
+                            self.handle_command(res["command"])
+                        elif res.get("has_task"):
+                            self.execute_task(res["task"])
+                        break
+                    elif res.get("status") == "ok":
+                        # Successful heartbeat, no pending command
+                        break
 
             time.sleep(self.poll_interval)
 
