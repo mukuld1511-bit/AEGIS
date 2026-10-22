@@ -10,6 +10,7 @@ Zero External Pip Dependencies (Uses Python standard library + Tkinter).
 - Live supervisor commands: warn, lock, unlock, capture, pull_model, run_command, execute_task.
 """
 import os
+import re
 import sys
 import time
 import json
@@ -31,12 +32,22 @@ except ImportError:
     HAS_TK = False
 
 class OverlayHUD:
-    """Floating borderless status head-up-display on the physical monitor."""
+    """Floating dynamic head-up-display with auto-collapse to logo pill and auto-enlarge on task."""
     def __init__(self, node_id: str = "dgx-node-1", node_name: str = "DGX Spark 01"):
         self.node_id = node_id
         self.node_name = node_name
         self.log_queue = queue.Queue()
         self.root = None
+        self.is_expanded = False
+        self.current_status = "ONLINE"
+        self.full_width = 480
+        self.full_height = 320
+        self.mini_width = 195
+        self.mini_height = 38
+        self.pos_y = 24
+        self.screen_width = 1920
+        self._drag_x = 0
+        self._drag_y = 0
 
     def start_hud_thread(self):
         t = threading.Thread(target=self._run_tk, daemon=True)
@@ -48,14 +59,10 @@ class OverlayHUD:
             self.root.title(f"AEGIS - {self.node_id}")
             self.root.overrideredirect(True) # Borderless
             self.root.attributes("-topmost", True) # Always on top
-            
-            # Position at top right
-            screen_width = self.root.winfo_screenwidth()
-            hud_width = 460
-            hud_height = 300
-            pos_x = screen_width - hud_width - 24
-            pos_y = 24
-            self.root.geometry(f"{hud_width}x{hud_height}+{pos_x}+{pos_y}")
+
+            self.screen_width = self.root.winfo_screenwidth()
+            pos_x_mini = self.screen_width - self.mini_width - 24
+            self.root.geometry(f"{self.mini_width}x{self.mini_height}+{pos_x_mini}+{self.pos_y}")
 
             bg_dark = "#0c0e14"
             fg_cyan = "#00f0ff"
@@ -63,25 +70,58 @@ class OverlayHUD:
 
             self.root.configure(bg=bg_dark)
 
-            container = tk.Frame(self.root, bg=bg_dark, highlightbackground="#00f0ff", highlightthickness=1)
-            container.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
+            # Outer border container
+            self.main_container = tk.Frame(self.root, bg=bg_dark, highlightbackground="#10b981", highlightthickness=1)
+            self.main_container.pack(fill=tk.BOTH, expand=True, padx=1, pady=1)
 
-            # Header Frame
-            hdr = tk.Frame(container, bg=card_bg, height=36)
+            # ==========================================
+            # 1. MINI LOGO BADGE (Idle State - Compact Pill)
+            # ==========================================
+            self.mini_frame = tk.Frame(self.main_container, bg=card_bg, cursor="hand2")
+            self.mini_frame.pack(fill=tk.BOTH, expand=True)
+
+            self.mini_dot = tk.Label(self.mini_frame, text="●", fg="#10b981", bg=card_bg, font=("Consolas", 11))
+            self.mini_dot.pack(side=tk.LEFT, padx=(8, 4))
+
+            self.mini_logo = tk.Label(self.mini_frame, text="🛡️ AEGIS", fg="#00f0ff", bg=card_bg, font=("Helvetica", 9, "bold"))
+            self.mini_logo.pack(side=tk.LEFT, padx=(0, 4))
+
+            self.mini_status = tk.Label(self.mini_frame, text="ONLINE", fg="#10b981", bg=card_bg, font=("Consolas", 8, "bold"))
+            self.mini_status.pack(side=tk.LEFT, padx=(2, 6))
+
+            self.mini_expand_icon = tk.Label(self.mini_frame, text="[+]", fg="#64748b", bg=card_bg, font=("Consolas", 8))
+            self.mini_expand_icon.pack(side=tk.RIGHT, padx=(0, 8))
+
+            # Click or double-click to expand
+            for w in [self.mini_frame, self.mini_dot, self.mini_logo, self.mini_status, self.mini_expand_icon]:
+                w.bind("<Button-1>", lambda e: self.toggle_expand())
+
+            # ==========================================
+            # 2. FULL HUD SCREEN (Active State - Enlarged)
+            # ==========================================
+            self.full_frame = tk.Frame(self.main_container, bg=bg_dark)
+
+            # Header
+            hdr = tk.Frame(self.full_frame, bg=card_bg, height=36)
             hdr.pack(fill=tk.X, padx=4, pady=4)
 
             self.status_dot = tk.Label(hdr, text="●", fg="#10b981", bg=card_bg, font=("Consolas", 12))
             self.status_dot.pack(side=tk.LEFT, padx=(8, 4))
 
-            title_lbl = tk.Label(hdr, text=f"AEGIS :: {self.node_name}", fg="#ffffff", bg=card_bg, font=("Helvetica", 10, "bold"))
+            title_lbl = tk.Label(hdr, text=f"🛡️ AEGIS :: {self.node_name}", fg="#ffffff", bg=card_bg, font=("Helvetica", 10, "bold"))
             title_lbl.pack(side=tk.LEFT)
 
+            # Collapse button [ ─ ]
+            collapse_btn = tk.Label(hdr, text="[ ─ ]", fg="#94a3b8", bg=card_bg, cursor="hand2", font=("Consolas", 9, "bold"))
+            collapse_btn.pack(side=tk.RIGHT, padx=(4, 6))
+            collapse_btn.bind("<Button-1>", lambda e: self.set_expanded(False))
+
             self.status_lbl = tk.Label(hdr, text="ONLINE", fg="#10b981", bg=card_bg, font=("Helvetica", 9, "bold"))
-            self.status_lbl.pack(side=tk.RIGHT, padx=8)
+            self.status_lbl.pack(side=tk.RIGHT, padx=4)
 
             # Telemetry Bar
             self.telem_lbl = tk.Label(
-                container,
+                self.full_frame,
                 text="GPU: 0% | VRAM: 0.0/128 GB | Temp: 35°C",
                 fg=fg_cyan,
                 bg=bg_dark,
@@ -91,19 +131,19 @@ class OverlayHUD:
 
             # Task info
             self.task_lbl = tk.Label(
-                container,
+                self.full_frame,
                 text="Active Task: Listening for coordinator assignments...",
                 fg="#7b88a1",
                 bg=bg_dark,
                 font=("Helvetica", 8, "italic"),
-                wraplength=440,
+                wraplength=460,
                 justify="left"
             )
             self.task_lbl.pack(anchor="w", padx=8, pady=(2, 4))
 
             # Terminal log display area
             self.log_text = tk.Text(
-                container,
+                self.full_frame,
                 bg="#06070a",
                 fg="#a7f3d0",
                 font=("Consolas", 8),
@@ -115,10 +155,59 @@ class OverlayHUD:
             self.log_text.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
             self.log_text.insert(tk.END, f"AEGIS Physical Display HUD Online.\nConnected via Reverse-Heartbeat to Gateway.\n")
 
+            # Enable window drag
+            self._bind_drag(self.mini_frame)
+            self._bind_drag(hdr)
+
             self.root.after(100, self._process_queue)
             self.root.mainloop()
         except Exception as e:
             print(f"[OverlayHUD] GUI error: {e}")
+
+    def _bind_drag(self, widget):
+        widget.bind("<ButtonPress-1>", self._on_drag_start, add="+")
+        widget.bind("<B1-Motion>", self._on_drag_motion, add="+")
+
+    def _on_drag_start(self, event):
+        self._drag_x = event.x
+        self._drag_y = event.y
+
+    def _on_drag_motion(self, event):
+        if self.root:
+            x = self.root.winfo_x() - self._drag_x + event.x
+            y = self.root.winfo_y() - self._drag_y + event.y
+            self.root.geometry(f"+{x}+{y}")
+
+    def toggle_expand(self):
+        self.set_expanded(not self.is_expanded)
+
+    def set_expanded(self, expand: bool):
+        self.log_queue.put(("expand", expand))
+
+    def _apply_expansion(self, expand: bool):
+        if not self.root:
+            return
+        self.is_expanded = expand
+        current_x = self.root.winfo_x()
+        current_y = self.root.winfo_y()
+
+        if expand:
+            pos_x = min(current_x, self.screen_width - self.full_width - 12)
+            self.root.geometry(f"{self.full_width}x{self.full_height}+{pos_x}+{current_y}")
+            self.mini_frame.pack_forget()
+            self.full_frame.pack(fill=tk.BOTH, expand=True)
+            self.main_container.configure(highlightbackground="#00f0ff")
+        else:
+            pos_x = min(current_x, self.screen_width - self.mini_width - 12)
+            self.root.geometry(f"{self.mini_width}x{self.mini_height}+{pos_x}+{current_y}")
+            self.full_frame.pack_forget()
+            self.mini_frame.pack(fill=tk.BOTH, expand=True)
+            border = "#f59e0b" if self.current_status == "BUSY" else "#10b981"
+            self.main_container.configure(highlightbackground=border)
+
+    def _auto_collapse_if_idle(self):
+        if self.current_status in ["ONLINE", "READY"] and self.is_expanded:
+            self._apply_expansion(False)
 
     def append_log(self, text: str):
         self.log_queue.put(("log", text))
@@ -139,33 +228,58 @@ class OverlayHUD:
         try:
             while not self.log_queue.empty():
                 kind, data = self.log_queue.get_nowait()
-                if kind == "log":
+                if kind == "expand":
+                    self._apply_expansion(data)
+                elif kind == "log":
                     self.log_text.insert(tk.END, data)
                     self.log_text.see(tk.END)
                 elif kind == "status":
                     status, title = data
-                    color = "#10b981" if status.upper() in ["ONLINE", "READY"] else ("#f59e0b" if status.upper() == "BUSY" else "#3b82f6")
-                    self.status_lbl.configure(text=status.upper(), fg=color)
+                    self.current_status = status.upper()
+                    color = "#10b981" if self.current_status in ["ONLINE", "READY"] else ("#f59e0b" if self.current_status == "BUSY" else "#3b82f6")
+
+                    # Update Full HUD labels
+                    self.status_lbl.configure(text=self.current_status, fg=color)
                     self.status_dot.configure(fg=color)
                     if title:
                         self.task_lbl.configure(text=f"Task: {title}")
+
+                    # Update Mini Badge labels
+                    self.mini_status.configure(text=self.current_status, fg=color)
+                    self.mini_dot.configure(fg=color)
+
+                    # Dynamic behavior: Enlarge on BUSY, auto-collapse after idle
+                    if self.current_status == "BUSY":
+                        self._apply_expansion(True)
+                    elif self.current_status in ["ONLINE", "READY"]:
+                        if self.root:
+                            self.root.after(7000, self._auto_collapse_if_idle)
+
                 elif kind == "telemetry":
                     self.telem_lbl.configure(text=data)
                 elif kind == "warning":
                     self.status_lbl.configure(text="ALERT", fg="#ef4444")
                     self.status_dot.configure(fg="#ef4444")
+                    self.mini_status.configure(text="ALERT", fg="#ef4444")
+                    self.mini_dot.configure(fg="#ef4444")
                     self.log_text.insert(tk.END, f"\n⚠️ [GATEWAY ALERT] {data}\n")
                     self.log_text.see(tk.END)
+                    self._apply_expansion(True)
                 elif kind == "locked":
                     locked, reason = data
                     if locked:
                         self.status_lbl.configure(text="LOCKED", fg="#dc2626")
                         self.status_dot.configure(fg="#dc2626")
+                        self.mini_status.configure(text="LOCKED", fg="#dc2626")
+                        self.mini_dot.configure(fg="#dc2626")
                         self.task_lbl.configure(text=f"NODE LOCKED: {reason or 'Administrative Lock'}")
                         self.log_text.insert(tk.END, f"\n🔒 [STATION LOCKED] {reason}\n")
+                        self._apply_expansion(True)
                     else:
                         self.status_lbl.configure(text="READY", fg="#10b981")
                         self.status_dot.configure(fg="#10b981")
+                        self.mini_status.configure(text="READY", fg="#10b981")
+                        self.mini_dot.configure(fg="#10b981")
                         self.task_lbl.configure(text="Listening for coordinator assignments...")
                         self.log_text.insert(tk.END, f"\n🔓 [STATION UNLOCKED]\n")
                     self.log_text.see(tk.END)
@@ -329,13 +443,22 @@ class DGXStandaloneAgent:
         if self.hud:
             self.hud.append_log(f"[{self.node_id}] Querying {self.default_model} on local GPU...\n")
 
+        system_instruction = (
+            "You are an expert autonomous software engineer executing tasks on an NVIDIA DGX node.\n"
+            "Generate complete, robust, production-quality code to fulfill the user's request.\n"
+            "If the request involves creating a script, module, or document, specify the target filename on the first line inside the code block as a comment (e.g. '# filename: utils.py' or '// filename: main.cpp').\n"
+            "Always wrap your code in standard markdown code blocks (```python ... ```).\n"
+            "Do NOT include file upload code, network synchronization, or destination URLs; the autonomous runtime environment automatically captures and synchronizes all generated artifacts."
+        )
+
         url = f"{self.ollama_url}/api/generate"
         payload = {
             "model": self.default_model,
             "prompt": prompt,
+            "system": system_instruction,
             "stream": False
         }
-        res = http_post_json(url, payload, timeout=120.0)
+        res = http_post_json(url, payload, timeout=180.0)
         resp_text = res.get("response", "")
         if self.hud and resp_text:
             self.hud.append_log(f"\n--- Output ---\n{resp_text[:500]}...\n")
@@ -362,6 +485,67 @@ class DGXStandaloneAgent:
                 last_error = str(e)
         return f"vault_sync_failed: {last_error}"
 
+    def extract_and_vault_files(self, stdout_log: str, prompt: str, task_id: str) -> list:
+        """Extracts all code blocks, names them cleanly, saves locally, and auto-vaults each file."""
+        saved_files = []
+        task_dir = os.path.join("./workspace", task_id)
+        os.makedirs(task_dir, exist_ok=True)
+
+        pattern = re.compile(r"```([a-zA-Z0-9_\-\+]*)\n(.*?)```", re.DOTALL)
+        matches = pattern.findall(stdout_log)
+
+        # Detect any filename mentioned in the prompt (e.g. math_utils.py)
+        prompt_filenames = re.findall(r"\b([\w-]+\.(?:py|sh|json|sql|html|css|js|txt|md|yaml|yml|cpp|c|h|rs))\b", prompt, re.IGNORECASE)
+
+        if matches:
+            for idx, (lang, code) in enumerate(matches):
+                code = code.strip()
+                if not code:
+                    continue
+
+                ext = "py"
+                if lang:
+                    lang_lower = lang.lower().strip()
+                    ext_map = {"python": "py", "bash": "sh", "shell": "sh", "sh": "sh", "json": "json", "sql": "sql", "html": "html", "javascript": "js", "cpp": "cpp", "c": "c", "rust": "rs", "markdown": "md"}
+                    ext = ext_map.get(lang_lower, "py" if "def " in code or "import " in code else "txt")
+
+                filename = None
+                code_lines = code.splitlines()[:3]
+                for line in code_lines:
+                    fn_match = re.search(r"(?:#|//|<!--|\*)\s*(?:filename:?\s*|file:?\s*)([\w-]+\.\w+)", line, re.IGNORECASE)
+                    if fn_match:
+                        filename = fn_match.group(1).strip()
+                        break
+                    fn_match2 = re.search(r"^[#//\s]+([\w-]+\.(?:py|sh|json|sql|html|css|js|txt))\b", line.strip(), re.IGNORECASE)
+                    if fn_match2:
+                        filename = fn_match2.group(1).strip()
+                        break
+
+                if not filename and idx < len(prompt_filenames):
+                    filename = prompt_filenames[idx]
+
+                if not filename:
+                    filename = f"module_{idx + 1}.{ext}" if len(matches) > 1 else f"solution.{ext}"
+
+                file_path = os.path.join(task_dir, filename)
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(code)
+
+                vault_res = self.upload_to_i7_vault(file_path, task_id)
+                print(f"[✓] Auto-Vault: {filename} -> {vault_res}")
+                if self.hud:
+                    self.hud.append_log(f"[✓] Auto-Vault: {filename} -> {vault_res}\n")
+
+                saved_files.append((filename, file_path, vault_res))
+        else:
+            text_file = os.path.join(task_dir, "output.txt")
+            with open(text_file, "w", encoding="utf-8") as f:
+                f.write(stdout_log)
+            vault_res = self.upload_to_i7_vault(text_file, task_id)
+            saved_files.append(("output.txt", text_file, vault_res))
+
+        return saved_files
+
     def execute_task(self, task: dict):
         if self.is_locked:
             print(f"[{self.node_id}] Task rejected: Node is LOCKED.")
@@ -380,43 +564,21 @@ class DGXStandaloneAgent:
             self.hud.update_status("BUSY", task_title=prompt)
             self.hud.append_log(f"\n>>> [TASK {task_id}] Received from Gateway:\nPrompt: {prompt}\n")
 
-        # 1. Run inference on local GPU
+        # 1. Run inference on local GPU with hidden autonomous directive
         stdout_log = self.execute_ollama_query(prompt)
 
-        # 2. Extract code block and save to workspace
-        generated_file = None
-        if "```python" in stdout_log:
-            code = stdout_log.split("```python")[1].split("```")[0].strip()
-            generated_file = f"./workspace/{task_id}_output.py"
-            with open(generated_file, "w", encoding="utf-8") as f:
-                f.write(code)
-            print(f"[✓] Code saved locally: {generated_file}")
-            if self.hud:
-                self.hud.append_log(f"[✓] Code file saved: {generated_file}\n")
-        elif "```" in stdout_log:
-            code = stdout_log.split("```")[1].split("```")[0].strip()
-            generated_file = f"./workspace/{task_id}_output.txt"
-            with open(generated_file, "w", encoding="utf-8") as f:
-                f.write(code)
-            print(f"[✓] Text saved locally: {generated_file}")
+        # 2. Extract all code files and silently auto-vault them to the Central PC Vault
+        vaulted_records = self.extract_and_vault_files(stdout_log, prompt, task_id)
 
-        # 3. Mirror file to i7 PC Vault
-        vault_status = "none"
-        if generated_file:
-            vault_status = self.upload_to_i7_vault(generated_file, task_id)
-            print(f"[✓] Vault Sync: {vault_status} -> {self.storage_url}")
-            if self.hud:
-                self.hud.append_log(f"[✓] Vault Sync: {vault_status}\n")
-
-        # 4. Report completion back to Raspberry Pi Gateway
+        # 3. Report completion back to Raspberry Pi Gateway
         complete_payload = {
             "task_id": task_id,
             "node_id": self.node_id,
             "exit_code": 0,
             "stdout": stdout_log[:1500],
             "stderr": "",
-            "generated_file": generated_file,
-            "vault_status": vault_status,
+            "vaulted_files": [r[0] for r in vaulted_records],
+            "vault_status": vaulted_records[0][2] if vaulted_records else "none",
             "drive_status": "not_requested"
         }
 
