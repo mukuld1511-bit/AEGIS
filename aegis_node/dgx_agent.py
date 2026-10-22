@@ -33,7 +33,9 @@ except ImportError:
     HAS_TK = False
 
 class OverlayHUD:
-    """Floating tactile Claymorphic HUD: 3D inflated clay orb that spring-animates into rounded clay console."""
+    """Floating tactile Light Claymorphism HUD: 3D inflated porcelain clay orb with purple atom motif,
+    smoothly spring-animating into an inflated clay tablet console.
+    """
     def __init__(self, node_id: str = "dgx-node-1", node_name: str = "DGX Spark 01"):
         self.node_id = node_id
         self.node_name = node_name
@@ -43,14 +45,16 @@ class OverlayHUD:
         self.is_animating = False
         self.current_status = "ONLINE"
         self.pulse_phase = False
+        self.atom_phase = 0.0
 
-        self.circle_size = 62
+        self.circle_size = 64
         self.full_width = 460
         self.full_height = 310
         self.pos_y = 24
         self.screen_width = 1920
         self._drag_x = 0
         self._drag_y = 0
+        self.orbits = [-30, 30, 90]
 
     def start_hud_thread(self):
         t = threading.Thread(target=self._run_tk, daemon=True)
@@ -64,7 +68,7 @@ class OverlayHUD:
             self.root.attributes("-topmost", True) # Always on top
 
             try:
-                self.root.attributes("-alpha", 0.95)
+                self.root.attributes("-alpha", 0.97)
             except Exception:
                 pass
 
@@ -72,24 +76,26 @@ class OverlayHUD:
             pos_x_mini = self.screen_width - self.circle_size - 24
             self.root.geometry(f"{self.circle_size}x{self.circle_size}+{pos_x_mini}+{self.pos_y}")
 
-            # Tactile Claymorphism Palette (Smooth dark clay / rounded slate)
-            bg_clay = "#222630"        # Pliable dark clay base
-            card_clay = "#2b313e"      # Inflated clay card surface
-            highlight_clay = "#3d4659" # Top-left specular dome highlight
-            shadow_clay = "#121419"    # Soft ambient clay shadow
-            border_clay = "#343c4d"    # Pillowy clay border rim
-            recessed_tray = "#101217"  # Deep carved code tray
-            text_clay = "#f1f5f9"      # Stamped clean off-white
-            text_muted = "#94a3b8"     # Soft slate subtext
+            # Light Claymorphism Palette (Porcelain white clay / lavender accents / crisp slate)
+            bg_clay = "#f1f5f9"         # Soft porcelain clay canvas
+            card_clay = "#ffffff"       # Inflated pure white clay card
+            shadow_ambient = "#cbd5e1"  # Soft diffuse ambient clay shadow
+            shadow_border = "#e2e8f0"   # Pillowy clay border rim
+            recessed_tray = "#f8fafc"   # Inset light ceramic trough
+            text_primary = "#0f172a"    # Crisp charcoal text
+            text_secondary = "#334155"  # Dark slate
+            text_muted = "#64748b"      # Soft slate subtext
+            accent_purple = "#7c3aed"   # Radiant purple / violet (from Atom motif)
+            accent_lavender = "#ede9fe" # Soft lavender pill background
 
             self.root.configure(bg=bg_clay)
 
             # Outer inflated clay border container
-            self.main_container = tk.Frame(self.root, bg=bg_clay, highlightbackground=highlight_clay, highlightthickness=2)
+            self.main_container = tk.Frame(self.root, bg=bg_clay, highlightbackground=shadow_border, highlightthickness=1.5)
             self.main_container.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
 
             # ========================================================
-            # 1. 3D CLAYMORPHIC ORB (Idle State)
+            # 1. 3D LIGHT CLAY ORB WITH PURPLE ATOM MOTIF (Idle State)
             # ========================================================
             self.circle_canvas = tk.Canvas(
                 self.main_container,
@@ -102,38 +108,58 @@ class OverlayHUD:
             self.circle_canvas.pack(fill=tk.BOTH, expand=True)
 
             # 3D Layered Clay Shading:
-            # 1. Soft drop shadow
-            self.circle_canvas.create_oval(4, 7, 58, 61, fill=shadow_clay, outline="")
-            # 2. Main clay body
-            self.orb_body = self.circle_canvas.create_oval(3, 3, 57, 57, fill=card_clay, outline=border_clay, width=1.5)
+            # 1. Ambient soft drop shadows
+            self.circle_canvas.create_oval(4, 7, 60, 63, fill=shadow_ambient, outline="")
+            self.circle_canvas.create_oval(3, 5, 59, 61, fill="#e2e8f0", outline="")
+            # 2. Main inflated white clay body
+            self.orb_body = self.circle_canvas.create_oval(2, 2, 58, 58, fill=card_clay, outline="#e2e8f0", width=1.5)
             # 3. Top-left soft specular dome highlight (inflated 3D dome look)
-            self.circle_canvas.create_oval(5, 5, 55, 41, fill=highlight_clay, outline="")
-            self.circle_canvas.create_oval(6, 8, 54, 55, fill=card_clay, outline="")
-            # 4. Specular gleam
-            self.circle_canvas.create_oval(14, 8, 27, 16, fill="#4a556b", outline="")
-            # 5. Stamped 3D debossed emblem
-            self.circle_canvas.create_text(31, 31, text="⬡", fill=shadow_clay, font=("Helvetica", 16, "bold"))
-            self.circle_canvas.create_text(30, 30, text="⬡", fill=text_clay, font=("Helvetica", 16, "bold"))
+            self.circle_canvas.create_oval(14, 5, 28, 12, fill="#ffffff", outline="")
+
+            # 4. Purple Atom Motif (Directly inspired by glowing purple atom reference)
+            cx, cy = 30, 30
+            orbit_colors = ["#8b5cf6", "#9333ea", "#7c3aed"]
+            for idx, angle_deg in enumerate(self.orbits):
+                rad = math.radians(angle_deg)
+                pts = []
+                for step in range(36):
+                    t = 2 * math.pi * step / 36.0
+                    x = cx + 19 * math.cos(t) * math.cos(rad) - 7.5 * math.sin(t) * math.sin(rad)
+                    y = cy + 19 * math.cos(t) * math.sin(rad) + 7.5 * math.sin(t) * math.cos(rad)
+                    pts.extend([x, y])
+                pts.extend([pts[0], pts[1]])
+                self.circle_canvas.create_line(pts, fill=orbit_colors[idx], width=1.4, smooth=True)
+
+            # 5. Glowing purple nucleus vortex
+            self.circle_canvas.create_oval(cx - 7, cy - 7, cx + 7, cy + 7, fill="#ede9fe", outline="")  # Lavender corona
+            self.circle_canvas.create_oval(cx - 4.5, cy - 4.5, cx + 4.5, cy + 4.5, fill="#8b5cf6", outline="")  # Purple halo
+            self.circle_canvas.create_oval(cx - 2.5, cy - 2.5, cx + 2.5, cy + 2.5, fill="#7c3aed", outline="")  # Deep violet core
+            self.circle_canvas.create_oval(cx - 1, cy - 1, cx + 1, cy + 1, fill="#ffffff", outline="")  # White spark
+
             # 6. Embedded 3D tactile status gem (pip)
-            self.orb_pip_shadow = self.circle_canvas.create_oval(40, 40, 52, 52, fill=shadow_clay, outline="")
-            self.orb_pip = self.circle_canvas.create_oval(39, 39, 51, 51, fill="#10b981", outline="#34d399", width=1)
+            self.circle_canvas.create_oval(42, 42, 54, 54, fill=shadow_ambient, outline="")
+            self.orb_pip = self.circle_canvas.create_oval(41, 41, 53, 53, fill="#10b981", outline="#34d399", width=1)
+            self.circle_canvas.create_oval(44, 43, 47, 46, fill="#ffffff", outline="")
+
+            # Initial draw of revolving electrons
+            self._update_atom_electrons()
 
             # Click circular clay orb to spring-expand
             self.circle_canvas.bind("<Button-1>", lambda e: self.start_animation(True))
 
             # ========================================================
-            # 2. 3D CLAY TABLET CONSOLE (Expanded State)
+            # 2. 3D LIGHT CLAY TABLET CONSOLE (Expanded State)
             # ========================================================
             self.full_frame = tk.Frame(self.main_container, bg=bg_clay)
 
-            # Embossed Clay Header
-            hdr = tk.Frame(self.full_frame, bg=card_clay, height=36)
+            # Embossed White Clay Header
+            hdr = tk.Frame(self.full_frame, bg=card_clay, height=38)
             hdr.pack(fill=tk.X, padx=0, pady=0)
 
-            self.status_dot = tk.Label(hdr, text="●", fg="#10b981", bg=card_clay, font=("Helvetica", 10))
-            self.status_dot.pack(side=tk.LEFT, padx=(12, 4))
+            atom_icon = tk.Label(hdr, text="⚛", fg=accent_purple, bg=card_clay, font=("Helvetica", 13, "bold"))
+            atom_icon.pack(side=tk.LEFT, padx=(10, 4))
 
-            title_lbl = tk.Label(hdr, text=f"AEGIS Studio  •  {self.node_name}", fg=text_clay, bg=card_clay, font=("Helvetica", 9, "bold"))
+            title_lbl = tk.Label(hdr, text=f"AEGIS Studio  •  {self.node_name}", fg=text_primary, bg=card_clay, font=("Helvetica", 9, "bold"))
             title_lbl.pack(side=tk.LEFT)
 
             # Tactile Pill Button for collapse [ — ]
@@ -141,34 +167,43 @@ class OverlayHUD:
                 hdr,
                 text=" — ",
                 fg=text_muted,
-                bg="#1d212a",
+                bg="#f1f5f9",
                 cursor="hand2",
                 font=("Helvetica", 9, "bold"),
-                padx=6,
-                pady=1,
-                relief="flat"
+                padx=8,
+                pady=2,
+                relief="flat",
+                highlightbackground="#e2e8f0",
+                highlightthickness=1
             )
-            collapse_btn.pack(side=tk.RIGHT, padx=(4, 10))
+            collapse_btn.pack(side=tk.RIGHT, padx=(4, 8))
             collapse_btn.bind("<Button-1>", lambda e: self.start_animation(False))
 
-            self.status_lbl = tk.Label(hdr, text="ONLINE", fg="#10b981", bg=card_clay, font=("Helvetica", 8, "bold"))
-            self.status_lbl.pack(side=tk.RIGHT, padx=6)
+            # Rounded lavender status pill
+            pill_frame = tk.Frame(hdr, bg=accent_lavender, padx=8, pady=2)
+            pill_frame.pack(side=tk.RIGHT, padx=4)
+
+            self.status_dot = tk.Label(pill_frame, text="●", fg="#10b981", bg=accent_lavender, font=("Helvetica", 8))
+            self.status_dot.pack(side=tk.LEFT)
+
+            self.status_lbl = tk.Label(pill_frame, text="ONLINE", fg=accent_purple, bg=accent_lavender, font=("Helvetica", 8, "bold"))
+            self.status_lbl.pack(side=tk.LEFT, padx=(3, 0))
 
             # Body Container
             body = tk.Frame(self.full_frame, bg=bg_clay)
             body.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
 
-            # Recessed Clay Trough for Telemetry
-            telem_box = tk.Frame(body, bg="#171a22", highlightbackground="#282e3c", highlightthickness=1)
+            # Recessed Light Ceramic Trough for Telemetry
+            telem_box = tk.Frame(body, bg=recessed_tray, highlightbackground=shadow_border, highlightthickness=1)
             telem_box.pack(fill=tk.X, padx=0, pady=(0, 4))
 
             self.telem_lbl = tk.Label(
                 telem_box,
                 text="GPU 0%  •  VRAM 0.0/128 GB  •  35°C",
-                fg=text_muted,
-                bg="#171a22",
+                fg=text_secondary,
+                bg=recessed_tray,
                 font=("Consolas", 8),
-                pady=2
+                pady=3
             )
             self.telem_lbl.pack(anchor="w", padx=6)
 
@@ -176,7 +211,7 @@ class OverlayHUD:
             self.task_lbl = tk.Label(
                 body,
                 text="Idle • Ready for assignments",
-                fg="#717a8a",
+                fg=text_muted,
                 bg=bg_clay,
                 font=("Helvetica", 8),
                 wraplength=440,
@@ -184,28 +219,39 @@ class OverlayHUD:
             )
             self.task_lbl.pack(anchor="w", padx=2, pady=(0, 4))
 
-            # Recessed Deep Slate Code Console
+            # Recessed White Clay Code Console
             self.log_text = tk.Text(
                 body,
-                bg=recessed_tray,
-                fg="#e2e8f0",
-                insertbackground="#f1f5f9",
+                bg=card_clay,
+                fg=text_primary,
+                insertbackground=accent_purple,
+                selectbackground="#ddd6fe",
+                selectforeground="#0f172a",
                 font=("Consolas", 8),
                 height=11,
                 wrap="char",
                 borderwidth=0,
                 highlightthickness=1,
-                highlightbackground="#262c38"
+                highlightbackground=shadow_border
             )
             self.log_text.pack(fill=tk.BOTH, expand=True)
-            self.log_text.insert(tk.END, "AEGIS Autonomous Agent Online.\nConnected via Reverse-Heartbeat to Gateway.\n")
+
+            self.log_text.tag_configure("purple", foreground=accent_purple, font=("Consolas", 8, "bold"))
+            self.log_text.tag_configure("green", foreground="#059669")
+            self.log_text.tag_configure("red", foreground="#dc2626")
+            self.log_text.tag_configure("amber", foreground="#d97706")
+            self.log_text.tag_configure("muted", foreground="#64748b")
+
+            self.log_text.insert(tk.END, "⚛ AEGIS Autonomous Agent Online.\n", "purple")
+            self.log_text.insert(tk.END, "Connected via Reverse-Heartbeat to Gateway.\n", "muted")
 
             # Enable window dragging on both circular orb and header
             self._bind_drag(self.circle_canvas)
             self._bind_drag(hdr)
 
-            # Start breathing pulse loop and queue processor
+            # Start animation ticks and queue processor
             self.root.after(100, self._process_queue)
+            self.root.after(70, self._atom_tick)
             self.root.after(1200, self._pulse_loop)
             self.root.mainloop()
         except Exception as e:
@@ -225,14 +271,47 @@ class OverlayHUD:
             y = self.root.winfo_y() - self._drag_y + event.y
             self.root.geometry(f"+{x}+{y}")
 
+    def _update_atom_electrons(self):
+        """Draws revolving electrons along the orbital tracks."""
+        if not self.root or self.is_expanded:
+            return
+        self.circle_canvas.delete("atom_electron")
+        cx, cy = 30, 30
+        a, b = 19, 7.5
+        for idx, angle_deg in enumerate(self.orbits):
+            rad = math.radians(angle_deg)
+            t_el = self.atom_phase + idx * (2 * math.pi / 3.0)
+            x_el = cx + a * math.cos(t_el) * math.cos(rad) - b * math.sin(t_el) * math.sin(rad)
+            y_el = cy + a * math.cos(t_el) * math.sin(rad) + b * math.sin(t_el) * math.cos(rad)
+            # Electron lilac glow
+            self.circle_canvas.create_oval(
+                x_el - 3, y_el - 3, x_el + 3, y_el + 3,
+                fill="#c084fc", outline="", tags="atom_electron"
+            )
+            # Electron white core
+            self.circle_canvas.create_oval(
+                x_el - 1.5, y_el - 1.5, x_el + 1.5, y_el + 1.5,
+                fill="#ffffff", outline="", tags="atom_electron"
+            )
+
+    def _atom_tick(self):
+        """Mesmerizing orbital motion for the purple atom motif."""
+        if not self.root:
+            return
+        if not self.is_expanded and not self.is_animating:
+            speed = 0.14 if self.current_status == "BUSY" else 0.06
+            self.atom_phase = (self.atom_phase + speed) % (2 * math.pi)
+            self._update_atom_electrons()
+        self.root.after(70, self._atom_tick)
+
     def _pulse_loop(self):
         """Tactile gentle pulse on the 3D clay bead status pip."""
         if not self.root:
             return
         if not self.is_expanded and not self.is_animating:
             self.pulse_phase = not self.pulse_phase
-            base_col = "#10b981" if self.current_status in ["ONLINE", "READY"] else "#f59e0b"
-            dim_col = "#047857" if self.current_status in ["ONLINE", "READY"] else "#b45309"
+            base_col = "#10b981" if self.current_status in ["ONLINE", "READY"] else "#7c3aed"
+            dim_col = "#059669" if self.current_status in ["ONLINE", "READY"] else "#5b21b6"
             cur = base_col if self.pulse_phase else dim_col
             self.circle_canvas.itemconfig(self.orb_pip, fill=cur)
         self.root.after(1200, self._pulse_loop)
@@ -289,15 +368,15 @@ class OverlayHUD:
         else:
             self.is_expanded = self.target_expanded
             self.is_animating = False
-            border = "#f59e0b" if self.current_status == "BUSY" else "#3d4659"
+            border = "#7c3aed" if self.current_status == "BUSY" else ("#10b981" if self.current_status in ["ONLINE", "READY"] else "#cbd5e1")
             self.main_container.configure(highlightbackground=border)
 
     def _auto_collapse_if_idle(self):
         if self.current_status in ["ONLINE", "READY"] and self.is_expanded:
             self.start_animation(False)
 
-    def append_log(self, text: str):
-        self.log_queue.put(("log", text))
+    def append_log(self, text: str, tag: str = ""):
+        self.log_queue.put(("log", (text, tag)))
 
     def update_status(self, status: str, task_title: str = ""):
         self.log_queue.put(("status", (status, task_title)))
@@ -318,12 +397,19 @@ class OverlayHUD:
                 if kind == "expand":
                     self.start_animation(data)
                 elif kind == "log":
-                    self.log_text.insert(tk.END, data)
+                    if isinstance(data, tuple):
+                        text, tag = data
+                        if tag:
+                            self.log_text.insert(tk.END, text, tag)
+                        else:
+                            self.log_text.insert(tk.END, text)
+                    else:
+                        self.log_text.insert(tk.END, str(data))
                     self.log_text.see(tk.END)
                 elif kind == "status":
                     status, title = data
                     self.current_status = status.upper()
-                    color = "#10b981" if self.current_status in ["ONLINE", "READY"] else ("#f59e0b" if self.current_status == "BUSY" else "#3b82f6")
+                    color = "#10b981" if self.current_status in ["ONLINE", "READY"] else ("#7c3aed" if self.current_status == "BUSY" else "#3b82f6")
 
                     # Update Full HUD labels
                     self.status_lbl.configure(text=self.current_status, fg=color)
@@ -333,7 +419,6 @@ class OverlayHUD:
 
                     # Update Circular Logo Pip color
                     self.circle_canvas.itemconfig(self.orb_pip, fill=color)
-                    self.circle_canvas.itemconfig(self.orb_ring, outline=color)
 
                     # Dynamic animation: Enlarge on BUSY, auto-minimise to circular logo after idle
                     if self.current_status == "BUSY":
@@ -348,7 +433,7 @@ class OverlayHUD:
                     self.status_lbl.configure(text="ALERT", fg="#ef4444")
                     self.status_dot.configure(fg="#ef4444")
                     self.circle_canvas.itemconfig(self.orb_pip, fill="#ef4444")
-                    self.log_text.insert(tk.END, f"\n⚠️ [GATEWAY ALERT] {data}\n")
+                    self.log_text.insert(tk.END, f"\n⚠️ [GATEWAY ALERT] {data}\n", "red")
                     self.log_text.see(tk.END)
                     self.start_animation(True)
                 elif kind == "locked":
@@ -358,14 +443,14 @@ class OverlayHUD:
                         self.status_dot.configure(fg="#dc2626")
                         self.circle_canvas.itemconfig(self.orb_pip, fill="#dc2626")
                         self.task_lbl.configure(text=f"NODE LOCKED: {reason or 'Administrative Lock'}")
-                        self.log_text.insert(tk.END, f"\n🔒 [STATION LOCKED] {reason}\n")
+                        self.log_text.insert(tk.END, f"\n🔒 [STATION LOCKED] {reason}\n", "red")
                         self.start_animation(True)
                     else:
-                        self.status_lbl.configure(text="READY", fg="#10b981")
+                        self.status_lbl.configure(text="ONLINE", fg="#10b981")
                         self.status_dot.configure(fg="#10b981")
                         self.circle_canvas.itemconfig(self.orb_pip, fill="#10b981")
                         self.task_lbl.configure(text="Idle • Ready for tasks")
-                        self.log_text.insert(tk.END, f"\n🔓 [STATION UNLOCKED]\n")
+                        self.log_text.insert(tk.END, f"\n🔓 [STATION UNLOCKED]\n", "green")
         except Exception:
             pass
         if self.root:
@@ -524,7 +609,7 @@ class DGXStandaloneAgent:
         """Queries local Ollama instance for code generation with HUD log streaming."""
         print(f"\n[{self.node_id}] Querying local model: {self.default_model}...")
         if self.hud:
-            self.hud.append_log(f"[{self.node_id}] Querying {self.default_model} on local GPU...\n")
+            self.hud.append_log(f"[{self.node_id}] Querying {self.default_model} on local GPU...\n", "purple")
 
         system_instruction = (
             "You are an expert autonomous software engineer executing tasks on an NVIDIA DGX node.\n"
@@ -617,7 +702,7 @@ class DGXStandaloneAgent:
                 vault_res = self.upload_to_i7_vault(file_path, task_id)
                 print(f"[✓] Auto-Vault: {filename} -> {vault_res}")
                 if self.hud:
-                    self.hud.append_log(f"[✓] Auto-Vault: {filename} -> {vault_res}\n")
+                    self.hud.append_log(f"[✓] Auto-Vault: {filename} -> {vault_res}\n", "green")
 
                 saved_files.append((filename, file_path, vault_res))
         else:
@@ -645,7 +730,7 @@ class DGXStandaloneAgent:
 
         if self.hud:
             self.hud.update_status("BUSY", task_title=prompt)
-            self.hud.append_log(f"\n>>> [TASK {task_id}] Received from Gateway:\nPrompt: {prompt}\n")
+            self.hud.append_log(f"\n>>> [TASK {task_id}] Received from Gateway:\nPrompt: {prompt}\n", "purple")
 
         # 1. Run inference on local GPU with hidden autonomous directive
         stdout_log = self.execute_ollama_query(prompt)
@@ -675,7 +760,7 @@ class DGXStandaloneAgent:
         if self.hud:
             status_text = "LOCKED" if self.is_locked else "ONLINE"
             self.hud.update_status(status_text, task_title="Idle")
-            self.hud.append_log(f"[Task {task_id} Complete - Ready for next heartbeat]\n")
+            self.hud.append_log(f"[Task {task_id} Complete - Ready for next heartbeat]\n", "green")
         print(f"[{self.node_id}] Ready for next reverse heartbeat.\n")
 
     def handle_command(self, cmd: dict):
