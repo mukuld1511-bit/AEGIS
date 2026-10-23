@@ -198,16 +198,24 @@ def make_pure_desktop_overlay(widget):
     if sys.platform != "win32":
         try:
             win_id = int(widget.winId())
+            # Skip taskbar, skip pager, always stay above all application windows
             subprocess.run([
                 "xprop", "-id", str(win_id),
                 "-f", "_NET_WM_STATE", "32a",
                 "-set", "_NET_WM_STATE", "_NET_WM_STATE_SKIP_TASKBAR, _NET_WM_STATE_SKIP_PAGER, _NET_WM_STATE_ABOVE"
             ], capture_output=True, timeout=0.8)
+            # Use UTILITY window type so GNOME Mutter does NOT treat it as a dock or tile it
             subprocess.run([
                 "xprop", "-id", str(win_id),
                 "-f", "_NET_WM_WINDOW_TYPE", "32a",
-                "-set", "_NET_WM_WINDOW_TYPE", "_NET_WM_WINDOW_TYPE_DOCK"
+                "-set", "_NET_WM_WINDOW_TYPE", "_NET_WM_WINDOW_TYPE_UTILITY"
             ], capture_output=True, timeout=0.8)
+            try:
+                subprocess.run([
+                    "xdotool", "windowmove", str(win_id), str(widget.x()), str(widget.y())
+                ], capture_output=True, timeout=0.8)
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -232,8 +240,10 @@ class CornerLogoOrb(QWidget):
         self.is_hovered = False
 
         # Pure desktop overlay flags: completely immune to taskbars and dock apps
-        flags = Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
-        if sys.platform != "win32":
+        flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+        if hasattr(Qt, "BypassWindowManagerHint"):
+            flags |= Qt.BypassWindowManagerHint
+        if sys.platform != "win32" and hasattr(Qt, "X11BypassWindowManagerHint"):
             flags |= Qt.X11BypassWindowManagerHint
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
@@ -407,9 +417,10 @@ class CornerLogoOrb(QWidget):
 class DynamicIslandWidget(QWidget):
     """Central Apple-Style Dynamic Island Notch with Smooth Pastel Transitions.
     States:
-    1. STATE_PILL_IDLE: Compact ~240 x 36 px minimal capsule at top-center.
-    2. STATE_PILL_BUSY: Stretched ~510 x 52 px capsule with live activity & task wave.
-    3. STATE_EXPANDED:  Full ~680 x 440 px elegant frosted control panel.
+    1. STATE_PILL_IDLE:  Compact ~240 x 36 px minimal resting capsule at top-center.
+    2. STATE_PILL_BUSY:  Horizontally stretched ~540 x 36 px (SAME HEIGHT!) with live activity & wave.
+    3. STATE_ALERT_DONE: Downward stretched ~440 x 96 px notification card with tick & file details.
+    4. STATE_EXPANDED:   Full ~680 x 440 px elegant frosted developer hub & telemetry console.
     """
     minimize_to_corner = pyqtSignal()
     node_switched = pyqtSignal(str)
@@ -417,7 +428,8 @@ class DynamicIslandWidget(QWidget):
 
     STATE_PILL_IDLE = 0
     STATE_PILL_BUSY = 1
-    STATE_EXPANDED = 2
+    STATE_ALERT_DONE = 2
+    STATE_EXPANDED = 3
 
     def __init__(self, node_id="dgx-node-1", node_name="DGX Spark 01", shared_queue=None, parent=None):
         super().__init__(parent)
@@ -430,12 +442,13 @@ class DynamicIslandWidget(QWidget):
         self.current_status = "ONLINE"
         self.active_model = "qwen2.5-coder:32b"
         self.task_text = "Ready • Standing by"
-        self.gpu_text = "GPU 0% • 35°C"
+        self.gpu_text = "GPU 0%"
         self.is_busy = False
 
-        # Apple Dynamic Island Dimensions
-        self.dim_pill_idle = (248, 38)
-        self.dim_pill_busy = (520, 52)
+        # Authentic Apple Dynamic Island Dimensions
+        self.dim_pill_idle = (240, 36)
+        self.dim_pill_busy = (540, 36)    # EXACT SAME 36px HEIGHT!
+        self.dim_alert_done = (440, 96)   # Downward stretch droplet card
         self.dim_expanded = (680, 440)
 
         self.cur_w, self.cur_h = self.dim_pill_idle
@@ -443,8 +456,10 @@ class DynamicIslandWidget(QWidget):
         self.target_w, self.target_h = self.cur_w, self.cur_h
 
         # Window Flags: Pure desktop overlay immune to dock and taskbar
-        flags = Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
-        if sys.platform != "win32":
+        flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+        if hasattr(Qt, "BypassWindowManagerHint"):
+            flags |= Qt.BypassWindowManagerHint
+        if sys.platform != "win32" and hasattr(Qt, "X11BypassWindowManagerHint"):
             flags |= Qt.X11BypassWindowManagerHint
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
@@ -482,8 +497,11 @@ class DynamicIslandWidget(QWidget):
         self.update()
 
     def _reposition_center(self):
-        geom = QApplication.primaryScreen().geometry()
-        avail = QApplication.primaryScreen().availableGeometry()
+        screen = QApplication.primaryScreen()
+        if not screen:
+            return
+        geom = screen.geometry()
+        avail = screen.availableGeometry()
         # Physical monitor horizontal center (unaffected by side docks)
         pos_x = geom.x() + int((geom.width() - self.cur_w) / 2)
         # Anchor cleanly beneath GNOME top bar or top screen margin
@@ -529,33 +547,35 @@ class DynamicIslandWidget(QWidget):
     def _init_ui(self):
         self.master_layout = QVBoxLayout(self)
         self.master_layout.setSizeConstraint(QtWidgets.QLayout.SetNoConstraint)
-        self.master_layout.setContentsMargins(10, 6, 10, 6)
+        self.master_layout.setContentsMargins(10, 4, 10, 4)
         self.master_layout.setSpacing(0)
 
-        # ── 1. COMPACT / STRETCHED ISLAND BAR ─────────────────────────────
+        # ── 1. COMPACT IDLE & HORIZONTALLY STRETCHED BUSY CAPSULE (Height 28px inside 36px) ──
         self.pill_bar = QWidget(self)
-        self.pill_bar.setFixedHeight(26)
+        self.pill_bar.setFixedHeight(28)
         pill_layout = QHBoxLayout(self.pill_bar)
-        pill_layout.setContentsMargins(4, 0, 4, 0)
+        pill_layout.setContentsMargins(2, 0, 2, 0)
         pill_layout.setSpacing(8)
 
-        # Left: Soft Pastel Indicator Dot
+        # Left: Soft Pastel Indicator Dot / Spinner / Checkmark
         self.lbl_dot = QLabel("●", self.pill_bar)
         pill_layout.addWidget(self.lbl_dot)
 
-        # Center Identity Badge
-        node_display = self.node_id.replace("dgx-", "").upper()
-        self.lbl_badge = QLabel(f"AEGIS  {node_display}", self.pill_bar)
+        # Center Identity Badge (SPARK 02 • QA)
+        self.lbl_badge = QLabel(self.pill_bar)
         pill_layout.addWidget(self.lbl_badge)
 
-        # Activity summary label (Hidden in idle, visible when stretched)
+        # Activity summary label (Hidden in Idle, visible when horizontally stretched)
         self.lbl_activity = QLabel(self.task_text, self.pill_bar)
         self.lbl_activity.setVisible(False)
         pill_layout.addWidget(self.lbl_activity, stretch=1)
 
-        pill_layout.addStretch()
+        # Model Pill Badge (e.g. 32B, visible when stretched)
+        self.lbl_model_pill = QLabel("32B", self.pill_bar)
+        self.lbl_model_pill.setVisible(False)
+        pill_layout.addWidget(self.lbl_model_pill)
 
-        # Telemetry info (Hidden in compact idle, visible when stretched)
+        # Telemetry info (Hidden in Idle, visible when stretched)
         self.lbl_telem = QLabel(self.gpu_text, self.pill_bar)
         self.lbl_telem.setVisible(False)
         pill_layout.addWidget(self.lbl_telem)
@@ -569,24 +589,49 @@ class DynamicIslandWidget(QWidget):
 
         self.master_layout.addWidget(self.pill_bar)
 
-        # ── 2. STRETCHED LIVE PROGRESS ROW (Busy Mode) ───────────────────
-        self.busy_row = QWidget(self)
-        self.busy_row.setFixedHeight(18)
-        self.busy_row.setVisible(False)
-        busy_layout = QHBoxLayout(self.busy_row)
-        busy_layout.setContentsMargins(8, 0, 8, 0)
-        busy_layout.setSpacing(8)
+        # ── 2. TASK DONE NOTIFICATION DROPLET CARD (Drops Down) ──────────
+        self.done_card = QWidget(self)
+        self.done_card.setVisible(False)
+        done_layout = QVBoxLayout(self.done_card)
+        done_layout.setContentsMargins(6, 4, 6, 6)
+        done_layout.setSpacing(4)
 
-        self.lbl_busy_spin = QLabel("◌", self.busy_row)
-        busy_layout.addWidget(self.lbl_busy_spin)
+        # Row 1: Checkmark + "TASK COMPLETED • SYNCED TO VAULT"
+        row1 = QHBoxLayout()
+        row1.setContentsMargins(0, 0, 0, 0)
+        row1.setSpacing(6)
 
-        self.lbl_busy_prompt = QLabel("Generating code...", self.busy_row)
-        busy_layout.addWidget(self.lbl_busy_prompt, stretch=1)
+        self.lbl_done_tick = QLabel("✓", self.done_card)
+        self.lbl_done_tick.setStyleSheet("color: #34D399; font-size: 13px; font-weight: 900;")
+        row1.addWidget(self.lbl_done_tick)
 
-        self.lbl_busy_tag = QLabel(self.active_model.split(":")[0], self.busy_row)
-        busy_layout.addWidget(self.lbl_busy_tag)
+        self.lbl_done_header = QLabel("TASK COMPLETED • SYNCED TO VAULT", self.done_card)
+        self.lbl_done_header.setStyleSheet(
+            "color: #F8FAFC; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; "
+            "font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', sans-serif;"
+        )
+        row1.addWidget(self.lbl_done_header)
+        row1.addStretch()
+        done_layout.addLayout(row1)
 
-        self.master_layout.addWidget(self.busy_row)
+        # Row 2: File Icon + Details
+        row2 = QHBoxLayout()
+        row2.setContentsMargins(4, 0, 0, 0)
+        row2.setSpacing(6)
+
+        self.lbl_done_icon = QLabel("📁", self.done_card)
+        self.lbl_done_icon.setStyleSheet("font-size: 11px;")
+        row2.addWidget(self.lbl_done_icon)
+
+        self.lbl_done_details = QLabel("solution.py (2.4 KB)  •  qwen2.5-coder:32b", self.done_card)
+        self.lbl_done_details.setStyleSheet(
+            "color: #94A3B8; font-size: 10px; font-weight: 500; font-family: 'SF Mono', Consolas, monospace;"
+        )
+        row2.addWidget(self.lbl_done_details)
+        row2.addStretch()
+        done_layout.addLayout(row2)
+
+        self.master_layout.addWidget(self.done_card)
 
         # ── 3. EXPANDED CONTROL HUB CONTAINER ────────────────────────────
         self.hub_container = QWidget(self)
@@ -639,9 +684,8 @@ class DynamicIslandWidget(QWidget):
         role_tag = "CODER" if "1" in self.node_id else ("QA/REVIEW" if "2" in self.node_id else self.theme.get("tag", "NODE").upper())
         num = "01" if "1" in self.node_id else ("02" if "2" in self.node_id else self.node_id.replace("dgx-node-", ""))
 
-        # Glowing Indicator Pip
-        self.lbl_dot.setText("●")
-        self.lbl_dot.setStyleSheet(f"color: {p_hex}; font-size: 10px; padding-left: 2px;")
+        # Glowing Indicator Pip / Spinner
+        self.lbl_dot.setStyleSheet(f"color: {p_hex}; font-size: 11px; font-weight: bold; padding-left: 2px;")
 
         # Designer Pill Identity Badge
         self.lbl_badge.setText(f"SPARK {num} • {role_tag}")
@@ -653,8 +697,23 @@ class DynamicIslandWidget(QWidget):
 
         # Smooth Activity Summary
         self.lbl_activity.setStyleSheet(
-            "color: #e2e8f0; font-size: 10.5px; font-weight: 500; padding-left: 4px; "
+            "color: #e2e8f0; font-size: 10px; font-weight: 500; padding-left: 2px; "
             "font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', sans-serif;"
+        )
+
+        # Model Pill Tag (32B / 70B etc.)
+        short_model = "32B"
+        if "70b" in self.active_model.lower():
+            short_model = "70B"
+        elif "16b" in self.active_model.lower():
+            short_model = "16B"
+        elif "8x22b" in self.active_model.lower():
+            short_model = "22B"
+        self.lbl_model_pill.setText(short_model)
+        self.lbl_model_pill.setStyleSheet(
+            f"background: rgba(255, 255, 255, 0.06); color: {p_hex}; border: 1px solid {p_border}; "
+            f"border-radius: 5px; padding: 1px 6px; font-size: 9px; font-weight: 700; "
+            f"font-family: 'SF Mono', Consolas, monospace;"
         )
 
         # Telemetry Tag Pill
@@ -668,17 +727,6 @@ class DynamicIslandWidget(QWidget):
             f"QPushButton {{ background: rgba(255, 255, 255, 0.05); color: #94a3b8; border: 1px solid rgba(255, 255, 255, 0.08); "
             f"border-radius: 9px; font-size: 10px; font-weight: bold; }} "
             f"QPushButton:hover {{ background: {p_dim}; color: {p_hex}; border: 1px solid {p_border}; }}"
-        )
-
-        # Busy row items
-        self.lbl_busy_spin.setStyleSheet(f"color: {p_hex}; font-size: 12px; font-weight: bold;")
-        self.lbl_busy_prompt.setStyleSheet(
-            "color: #cbd5e1; font-size: 10.5px; font-weight: 500; font-style: normal; "
-            "font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif;"
-        )
-        self.lbl_busy_tag.setStyleSheet(
-            f"background: {p_dim}; color: {p_hex}; font-size: 9px; font-weight: 700; border-radius: 5px; "
-            f"padding: 2px 7px; border: 1px solid {p_border};"
         )
 
         # Hub Header
@@ -849,23 +897,32 @@ class DynamicIslandWidget(QWidget):
         self.anim_step = 0
         self.start_w, self.start_h = self.cur_w, self.cur_h
 
+        # Immediately hide complex child views so shrinking animation stays smooth & clean
         if new_state == self.STATE_PILL_IDLE:
             self.target_w, self.target_h = self.dim_pill_idle
             self.hub_container.setVisible(False)
-            self.busy_row.setVisible(False)
+            self.done_card.setVisible(False)
             self.lbl_activity.setVisible(False)
+            self.lbl_model_pill.setVisible(False)
             self.lbl_telem.setVisible(False)
+            self.lbl_dot.setText("●")
             self.btn_toggle.setText("▾")
         elif new_state == self.STATE_PILL_BUSY:
             self.target_w, self.target_h = self.dim_pill_busy
             self.hub_container.setVisible(False)
-            self.busy_row.setVisible(False)
+            self.done_card.setVisible(False)
+            self.btn_toggle.setText("▾")
+        elif new_state == self.STATE_ALERT_DONE:
+            self.target_w, self.target_h = self.dim_alert_done
+            self.hub_container.setVisible(False)
             self.lbl_activity.setVisible(False)
+            self.lbl_model_pill.setVisible(False)
             self.lbl_telem.setVisible(False)
+            self.lbl_dot.setText("✓")
             self.btn_toggle.setText("▾")
         elif new_state == self.STATE_EXPANDED:
             self.target_w, self.target_h = self.dim_expanded
-            self.busy_row.setVisible(False)
+            self.done_card.setVisible(False)
             self.btn_toggle.setText("▴")
 
         self.anim_timer.start(16)
@@ -873,7 +930,7 @@ class DynamicIslandWidget(QWidget):
     def _animation_tick(self):
         self.anim_step += 1
         t = self.anim_step / float(self.anim_total)
-        # Fluid Ease-In Ease-Out (C2-continuous smootherstep)
+        # Fluid Ease-In Ease-Out (C2-continuous smootherstep polynomial)
         ease = ease_in_out(t)
 
         new_w = int(self.start_w + (self.target_w - self.start_w) * ease)
@@ -895,21 +952,34 @@ class DynamicIslandWidget(QWidget):
 
             if self.state == self.STATE_EXPANDED:
                 self.hub_container.setVisible(True)
+            elif self.state == self.STATE_ALERT_DONE:
+                self.done_card.setVisible(True)
             elif self.state == self.STATE_PILL_BUSY:
-                self.busy_row.setVisible(True)
                 self.lbl_activity.setVisible(True)
+                self.lbl_model_pill.setVisible(True)
                 self.lbl_telem.setVisible(True)
+            elif self.state == self.STATE_PILL_IDLE:
+                self.lbl_activity.setVisible(False)
+                self.lbl_model_pill.setVisible(False)
+                self.lbl_telem.setVisible(False)
+                self.done_card.setVisible(False)
+                self.hub_container.setVisible(False)
             self.update()
 
     def _pulse_tick(self):
         self.spinner_phase = (self.spinner_phase + 0.12) % (2 * math.pi)
         self.wave_phase = (self.wave_phase + 0.08) % (2 * math.pi)
 
-        spin_chars = ["◐", "◓", "◑", "◒"]
-        idx = int((self.spinner_phase / (2 * math.pi)) * len(spin_chars)) % len(spin_chars)
-        self.lbl_busy_spin.setText(spin_chars[idx])
+        if self.is_busy:
+            spin_chars = ["◐", "◓", "◑", "◒"]
+            idx = int((self.spinner_phase / (2 * math.pi)) * len(spin_chars)) % len(spin_chars)
+            self.lbl_dot.setText(spin_chars[idx])
+        elif self.state == self.STATE_ALERT_DONE:
+            self.lbl_dot.setText("✓")
+        else:
+            self.lbl_dot.setText("●")
 
-        if self.state in [self.STATE_PILL_BUSY, self.STATE_PILL_IDLE]:
+        if self.state in [self.STATE_PILL_BUSY, self.STATE_PILL_IDLE, self.STATE_ALERT_DONE]:
             self.update()
 
     def _process_queue(self):
@@ -920,23 +990,34 @@ class DynamicIslandWidget(QWidget):
                 self.console.append(text)
                 if self.is_busy:
                     line = text.strip().splitlines()[-1][:45] if text.strip() else ""
-                    if line:
-                        self.lbl_busy_prompt.setText(line)
+                    if line and not line.startswith(">>>") and not line.startswith("[✓"):
+                        self.lbl_activity.setText(line)
             elif kind == "status":
                 status, title = data
                 self.current_status = status
-                self.is_busy = status in ["BUSY", "COMPUTING"]
-                if self.is_busy:
+                if status in ["BUSY", "COMPUTING"]:
+                    self.is_busy = True
                     if title:
                         self.task_text = title
                         self.lbl_task_full.setText(title)
-                        self.lbl_activity.setText(title[:30] + "..." if len(title) > 30 else title)
-                    if self.state == self.STATE_PILL_IDLE:
+                        self.lbl_activity.setText(title[:36] + "..." if len(title) > 36 else title)
+                    if self.state in [self.STATE_PILL_IDLE, self.STATE_ALERT_DONE]:
                         self.transition_to(self.STATE_PILL_BUSY)
-                else:
+                elif status in ["DONE", "COMPLETED"]:
+                    self.is_busy = False
+                    if title:
+                        self.lbl_done_details.setText(f"{title}  •  {self.active_model}")
+                    else:
+                        self.lbl_done_details.setText(f"Code Synced to Vault  •  {self.active_model}")
+                    if self.state != self.STATE_EXPANDED:
+                        self.transition_to(self.STATE_ALERT_DONE)
+                        # Apple 3.5s Notification card -> recoil smoothly to thin Idle capsule
+                        QTimer.singleShot(3500, self._auto_collapse_to_idle)
+                else: # "ONLINE", "IDLE", "LOCKED", etc.
+                    self.is_busy = False
                     self.lbl_activity.setText("Standing by")
-                    if self.state == self.STATE_PILL_BUSY and self.chk_automin.isChecked():
-                        QTimer.singleShot(3000, self._auto_collapse)
+                    if self.state == self.STATE_PILL_BUSY:
+                        self.transition_to(self.STATE_PILL_IDLE)
             elif kind == "expand":
                 if data:
                     self.transition_to(self.STATE_EXPANDED)
@@ -946,24 +1027,31 @@ class DynamicIslandWidget(QWidget):
                 self._toggle_expanded()
             elif kind == "telemetry":
                 self.gpu_text = data
-                self.lbl_telem.setText(data)
+                # Extract compact GPU percent for pill mode
+                gpu_short = "GPU 0%"
                 try:
                     if "GPU:" in data:
                         g = data.split("GPU:")[1].split("%")[0].strip()
+                        gpu_short = f"GPU {g}%"
+                        self.lbl_gpu_val.setText(f"{g}%")
+                    elif "%" in data:
+                        g = data.split("%")[0].split()[-1].strip()
+                        gpu_short = f"GPU {g}%"
                         self.lbl_gpu_val.setText(f"{g}%")
                     if "°C" in data:
                         t = data.split("°C")[0].split("|")[-1].strip()
                         self.lbl_temp_val.setText(f"{t}°C")
                 except Exception:
                     pass
+                self.lbl_telem.setText(gpu_short)
 
-    def _auto_collapse(self):
-        if not self.is_busy and self.state == self.STATE_PILL_BUSY:
+    def _auto_collapse_to_idle(self):
+        if not self.is_busy and self.state == self.STATE_ALERT_DONE:
             self.transition_to(self.STATE_PILL_IDLE)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            if self.state in [self.STATE_PILL_IDLE, self.STATE_PILL_BUSY]:
+            if self.state in [self.STATE_PILL_IDLE, self.STATE_PILL_BUSY, self.STATE_ALERT_DONE]:
                 self.transition_to(self.STATE_EXPANDED)
                 event.accept()
                 return
@@ -979,13 +1067,18 @@ class DynamicIslandWidget(QWidget):
         h = float(self.height())
         rect = QRectF(1.5, 1.5, w - 3, h - 3)
 
-        # Dynamic corner radius: Apple pill mode = fully rounded capsule (h/2), Hub = 18px
-        radius = (h / 2.0) if self.state in [self.STATE_PILL_IDLE, self.STATE_PILL_BUSY] else 18.0
+        # Dynamic corner radius: Apple pill mode = fully rounded capsule (h/2), Done card = 20px, Hub = 18px
+        if self.state in [self.STATE_PILL_IDLE, self.STATE_PILL_BUSY]:
+            radius = h / 2.0
+        elif self.state == self.STATE_ALERT_DONE:
+            radius = 20.0
+        else:
+            radius = 18.0
 
         p_col = self.theme["primary"]
 
-        # 1. Ambient Soft Pastel Aura (Breathes softly on busy)
-        glow_alpha = 32 if self.is_busy else 16
+        # 1. Ambient Soft Pastel Aura (Breathes softly on busy / alert done)
+        glow_alpha = 36 if self.is_busy else (30 if self.state == self.STATE_ALERT_DONE else 14)
         glow_color = QColor(p_col.red(), p_col.green(), p_col.blue(), glow_alpha)
         painter.setPen(QPen(glow_color, 2.5))
         painter.setBrush(Qt.NoBrush)
@@ -993,9 +1086,9 @@ class DynamicIslandWidget(QWidget):
 
         # 2. Dark Frosted Obsidian Glass Body
         bg_grad = QLinearGradient(0, 0, 0, h)
-        bg_grad.setColorAt(0.0, QColor(16, 21, 31, 246))
-        bg_grad.setColorAt(0.4, QColor(10, 14, 22, 250))
-        bg_grad.setColorAt(1.0, QColor(7, 9, 15, 254))
+        bg_grad.setColorAt(0.0, QColor(16, 21, 31, 248))
+        bg_grad.setColorAt(0.4, QColor(10, 14, 22, 252))
+        bg_grad.setColorAt(1.0, QColor(7, 9, 15, 255))
         painter.setBrush(QBrush(bg_grad))
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(rect, radius, radius)
@@ -1014,7 +1107,7 @@ class DynamicIslandWidget(QWidget):
         painter.restore()
 
         # 4. Delicate Specular Border (Apple pastel style)
-        border_col = self.theme["border"] if self.is_busy else QColor(255, 255, 255, 26)
+        border_col = self.theme["border"] if (self.is_busy or self.state == self.STATE_ALERT_DONE) else QColor(255, 255, 255, 24)
         painter.setPen(QPen(border_col, 1.1))
         painter.setBrush(Qt.NoBrush)
         painter.drawRoundedRect(rect, radius, radius)
@@ -1116,8 +1209,9 @@ class AegisMasterHUD(QObject):
     def append_log(self, text: str, tag: str = ""):
         self.log_queue.put(("log", (text, tag)))
 
-    def update_status(self, status: str, title: str = ""):
-        self.log_queue.put(("status", (status, title)))
+    def update_status(self, status: str, title: str = "", task_title: str = "", **kwargs):
+        final_title = task_title or title
+        self.log_queue.put(("status", (status, final_title)))
         if self.orb:
             self.orb.set_busy(status in ["BUSY", "COMPUTING"])
 
@@ -1966,10 +2060,19 @@ class DGXStandaloneAgent:
 
         self.current_task_id = None
         if self.hud:
-            status_text = "LOCKED" if self.is_locked else "ONLINE"
-            self.hud.update_status(status_text, task_title="Idle")
-            self.hud.append_log(f"\n[✓ Task {task_id} Complete - Auto-minimizing to orb in 4s...]\n", "green")
-            threading.Timer(4.0, lambda: self.hud.set_expanded(False)).start()
+            # Determine main generated file name & size for the Apple Completion Droplet Card
+            main_file = "solution.py"
+            size_str = ""
+            for r in vaulted_records:
+                if r[0] != "manifest.json":
+                    main_file = r[0]
+                    if os.path.exists(r[1]):
+                        sz = os.path.getsize(r[1])
+                        size_str = f"{sz / 1024:.1f} KB" if sz >= 1024 else f"{sz} B"
+                    break
+            detail_str = f"{main_file} ({size_str})" if size_str else main_file
+            self.hud.update_status("DONE", title=detail_str, task_title=f"Task Completed • {detail_str}")
+            self.hud.append_log(f"\n[✓ Task {task_id} Complete - {detail_str} Synced to Vault]\n", "green")
         print(f"[{self.node_id}] Ready for next reverse heartbeat.\n")
 
     def handle_command(self, cmd: dict):
