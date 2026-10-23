@@ -1418,7 +1418,34 @@ if __name__ == "__main__":
     parser.add_argument("--ctx", type=int, default=int(os.environ.get("AEGIS_NUM_CTX", "65536")), help="Context window token limit (default: 65536, up to 131072)")
     parser.add_argument("--interval", type=float, default=6.0, help="Heartbeat interval in seconds")
     parser.add_argument("--no-hud", action="store_true", help="Disable desktop screen overlay HUD")
+    parser.add_argument("--background", "-b", "--detach", action="store_true", help="Run agent completely in the background without exposed terminal")
     args = parser.parse_args()
+
+    # If --background is requested, detach into independent process and exit terminal immediately
+    if (args.background or os.environ.get("AEGIS_BACKGROUND") == "1") and not os.environ.get("_AEGIS_DETACHED"):
+        env = os.environ.copy()
+        env["_AEGIS_DETACHED"] = "1"
+        cmd = [sys.executable, os.path.abspath(__file__)] + [a for a in sys.argv[1:] if a not in ["--background", "-b", "--detach"]]
+        kwargs = {}
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            kwargs["start_new_session"] = True
+
+        proc = subprocess.Popen(
+            cmd,
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            **kwargs
+        )
+        print("=" * 65)
+        print(f" [✓] AEGIS Agent ({args.id}) launched in BACKGROUND (PID: {proc.pid})")
+        print(f" [✓] Zero exposed terminal! Dynamic Island & Corner HUD floating on screen.")
+        print(f" [✓] You can now safely CLOSE this terminal window.")
+        print("=" * 65)
+        sys.exit(0)
 
     agent = DGXStandaloneAgent(
         node_id=args.id,
