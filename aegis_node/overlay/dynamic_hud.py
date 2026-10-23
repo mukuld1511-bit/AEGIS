@@ -456,8 +456,9 @@ class DynamicIslandWidget(QWidget):
         self.update()
 
     def _reposition_center(self):
-        screen = QApplication.primaryScreen()
-        screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
+        screen = getattr(self, "target_screen", None) or QApplication.primaryScreen()
+        if not screen:
+            screen = QApplication.screenAt(QCursor.pos())
         if screen:
             geom = screen.geometry()
             avail = screen.availableGeometry()
@@ -469,6 +470,7 @@ class DynamicIslandWidget(QWidget):
         # Position right below GNOME top bar or at screen top
         top_offset = avail.y() + 6 if avail.y() > geom.y() else (geom.y() + 10)
         pos_y = int(top_offset)
+        self.setFixedSize(self.cur_w, self.cur_h)
         self.setGeometry(pos_x, pos_y, self.cur_w, self.cur_h)
 
     def play_entrance_animation(self):
@@ -922,31 +924,37 @@ class DynamicIslandWidget(QWidget):
         # Fluid Ease-In Ease-Out (C2-continuous smootherstep polynomial)
         ease = ease_in_out(t)
 
-        new_w = int(self.start_w + (self.target_w - self.start_w) * ease)
-        new_h = int(self.start_h + (self.target_h - self.start_h) * ease)
+        self.cur_w = int(self.start_w + (self.target_w - self.start_w) * ease)
+        self.cur_h = int(self.start_h + (self.target_h - self.start_h) * ease)
+        self._reposition_center()
 
-        if new_w != self.cur_w or new_h != self.cur_h:
-            self.cur_w = new_w
-            self.cur_h = new_h
-            self.setFixedSize(self.cur_w, self.cur_h)
-            self._reposition_center()
+        # Reveal child containers smoothly as height expands downward
+        if self.target_state == self.STATE_EXPANDED and self.cur_h >= 180:
+            if not self.hub_container.isVisible():
+                self.hub_container.setVisible(True)
+        elif self.target_state == self.STATE_ALERT_DONE and self.cur_h >= 60:
+            if not self.done_card.isVisible():
+                self.done_card.setVisible(True)
 
         if self.anim_step >= self.anim_total:
             self.anim_timer.stop()
             self.is_animating = False
             self.state = self.target_state
             self.cur_w, self.cur_h = self.target_w, self.target_h
-            self.setFixedSize(self.cur_w, self.cur_h)
             self._reposition_center()
 
             if self.state == self.STATE_EXPANDED:
                 self.hub_container.setVisible(True)
+                self.done_card.setVisible(False)
             elif self.state == self.STATE_ALERT_DONE:
                 self.done_card.setVisible(True)
+                self.hub_container.setVisible(False)
             elif self.state == self.STATE_PILL_BUSY:
                 self.lbl_activity.setVisible(True)
                 self.lbl_model_pill.setVisible(True)
                 self.lbl_telem.setVisible(True)
+                self.done_card.setVisible(False)
+                self.hub_container.setVisible(False)
             elif self.state == self.STATE_PILL_IDLE:
                 self.lbl_activity.setVisible(False)
                 self.lbl_model_pill.setVisible(False)
@@ -999,14 +1007,17 @@ class DynamicIslandWidget(QWidget):
                         self.lbl_done_details.setText(f"{title}  •  {self.active_model}")
                     else:
                         self.lbl_done_details.setText(f"Code Synced to Vault  •  {self.active_model}")
-                    # Always present completed notification droplet card with file details
+                    # Always present completed notification droplet card popping down
                     self.transition_to(self.STATE_ALERT_DONE)
-                    # Apple 3.5s Notification card -> recoil smoothly to thin Idle capsule
-                    QTimer.singleShot(3500, self._auto_collapse_to_idle)
+                    # Apple 4s Notification card -> recoil smoothly to thin Idle capsule
+                    QTimer.singleShot(4000, self._auto_collapse_to_idle)
                 else: # "ONLINE", "IDLE", "LOCKED", etc.
                     self.is_busy = False
                     self.lbl_activity.setText("Standing by")
-                    if self.state in [self.STATE_PILL_BUSY, self.STATE_ALERT_DONE] or (hasattr(self, "chk_automin") and self.chk_automin.isChecked()):
+                    # Do NOT interrupt user if hub is manually opened, or if Done alert is displaying!
+                    if self.state in [self.STATE_EXPANDED, self.STATE_ALERT_DONE]:
+                        pass
+                    elif self.state == self.STATE_PILL_BUSY:
                         self.transition_to(self.STATE_PILL_IDLE)
             elif kind == "expand":
                 if data:
@@ -1036,7 +1047,7 @@ class DynamicIslandWidget(QWidget):
                 self.lbl_telem.setText(gpu_short)
 
     def _auto_collapse_to_idle(self):
-        if not self.is_busy:
+        if not self.is_busy and self.state == self.STATE_ALERT_DONE:
             self.transition_to(self.STATE_PILL_IDLE)
 
     def mousePressEvent(self, event):
@@ -1045,6 +1056,12 @@ class DynamicIslandWidget(QWidget):
                 self.transition_to(self.STATE_EXPANDED)
                 event.accept()
                 return
+            elif self.state == self.STATE_EXPANDED:
+                # Clicking the top capsule area collapses back to idle
+                if event.pos().y() <= 36:
+                    self.transition_to(self.STATE_PILL_BUSY if self.is_busy else self.STATE_PILL_IDLE)
+                    event.accept()
+                    return
         super().mousePressEvent(event)
 
     def paintEvent(self, event):
