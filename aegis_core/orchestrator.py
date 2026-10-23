@@ -37,12 +37,12 @@ class Orchestrator:
         candidates.sort(key=lambda n: (n.gpu.utilization_pct, n.gpu.vram_used_mb))
         return candidates[0].node_id
 
-    async def handle_user_command(self, raw_command: str) -> Dict[str, Any]:
+    async def handle_user_command(self, raw_command: str, preferred_node: Optional[str] = None) -> Dict[str, Any]:
         """End-to-end processing pipeline for natural voice or text command."""
         parsed = self.dialogue.parse(raw_command)
         intent = parsed["intent"]
         lang = parsed["language"]
-        target_node = parsed["target_node"]
+        target_node = preferred_node or parsed["target_node"]
         cleaned_prompt = parsed["cleaned_prompt"]
 
         # 1. Informational / Query Intents

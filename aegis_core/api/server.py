@@ -55,6 +55,7 @@ def create_app(state_mgr: StateManager, orchestrator: Orchestrator, safety: Safe
     class CommandInput(BaseModel):
         command: str
         preferred_node: Optional[str] = None
+        pc_id: Optional[str] = None
         session_id: Optional[str] = "default_session"
 
     class ClientCommandPush(BaseModel):
@@ -309,11 +310,13 @@ def create_app(state_mgr: StateManager, orchestrator: Orchestrator, safety: Safe
         return {"status": "recorded", "task_id": payload.task_id}
 
     @app.post("/api/tasks/submit")
+    @app.post("/api/command")
     async def submit_command(payload: CommandInput):
         """User or voice submits command -> enqueued into the assigned DGX node's reverse queue."""
-        res = await orchestrator.handle_user_command(payload.command)
+        pref_node = payload.preferred_node or payload.pc_id
+        res = await orchestrator.handle_user_command(payload.command, preferred_node=pref_node)
         if res.get("status") == "task_scheduled":
-            assigned_node = res.get("assigned_node", "dgx-node-1")
+            assigned_node = res.get("assigned_node", pref_node or "dgx-node-1")
             task_id = res.get("task_id")
 
             # Enqueue for reverse heartbeat pick-up

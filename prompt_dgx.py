@@ -1,37 +1,52 @@
 #!/usr/bin/env python3
-"""AEGIS Prompt & Storage Vault CLI tool."""
+"""AEGIS Prompt & Storage Vault CLI tool.
+Easily prompt any DGX node from terminal.
+Usage:
+    python prompt_dgx.py "your prompt here"
+    python prompt_dgx.py --node 2 "review this code"
+    python prompt_dgx.py --node dgx-node-1 "write a script"
+    python prompt_dgx.py --list
+    python prompt_dgx.py --last
+"""
 import os
 import sys
 import glob
 import json
 import urllib.request
+import urllib.error
 
-GATEWAY_URL = "https://raspberrypi.tailc8c1f6.ts.net/api/command"
-TARGET_PC = "dgx-node-1"
-VAULT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aegis_storage_vault", TARGET_PC, "outputs")
+# Local server fallback + Raspberry Pi Gateway
+URLS = [
+    "http://localhost:9000/api/tasks/submit",
+    "https://raspberrypi.tailc8c1f6.ts.net/api/command"
+]
 
-def list_vault_files():
-    print(f"\n[*] Files stored in Central Vault for {TARGET_PC}:")
-    pattern = os.path.join(VAULT_DIR, "**", "*.*")
+DEFAULT_NODE = "dgx-node-1"
+
+def list_vault_files(node_id: str = DEFAULT_NODE):
+    vault_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aegis_storage_vault", node_id, "outputs")
+    print(f"\n[*] Files stored in Central Vault for {node_id}:")
+    pattern = os.path.join(vault_dir, "**", "*.*")
     files = [f for f in glob.glob(pattern, recursive=True) if os.path.isfile(f)]
     if not files:
         print("    (No files vaulted yet)")
         return
     for idx, f in enumerate(sorted(files, key=os.path.getmtime, reverse=True), 1):
-        rel = os.path.relpath(f, VAULT_DIR)
+        rel = os.path.relpath(f, vault_dir)
         size = os.path.getsize(f)
         print(f"  {idx}. {rel}  ({size} bytes)")
     print()
 
-def show_last_file():
-    pattern = os.path.join(VAULT_DIR, "**", "*.*")
+def show_last_file(node_id: str = DEFAULT_NODE):
+    vault_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "aegis_storage_vault", node_id, "outputs")
+    pattern = os.path.join(vault_dir, "**", "*.*")
     files = [f for f in glob.glob(pattern, recursive=True) if os.path.isfile(f)]
     if not files:
-        print("\n[!] No files found in vault yet.\n")
+        print(f"\n[!] No files found in vault yet for {node_id}.\n")
         return
     latest = max(files, key=os.path.getmtime)
     print(f"\n==================================================================")
-    print(f" Latest Vaulted File: {os.path.relpath(latest, VAULT_DIR)}")
+    print(f" Latest Vaulted File ({node_id}): {os.path.relpath(latest, vault_dir)}")
     print(f" Full Path: {latest}")
     print(f"==================================================================")
     try:
@@ -41,38 +56,74 @@ def show_last_file():
         print(f"[!] Error reading file: {e}")
     print(f"==================================================================\n")
 
-def dispatch(prompt_text: str, target: str = TARGET_PC):
+def dispatch(prompt_text: str, target: str = DEFAULT_NODE):
     payload = {
-        "pc_id": target,
-        "command": prompt_text
+        "command": prompt_text,
+        "preferred_node": target,
+        "pc_id": target
     }
     data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        GATEWAY_URL,
-        data=data,
-        headers={"Content-Type": "application/json"}
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            result = json.loads(resp.read().decode("utf-8"))
-            print(f"[OK] Dispatched to {target.upper()} via Raspberry Pi Gateway:")
-            print(f"     Message: {result.get('message')}")
-            print(f"     Status:  {result.get('status')}")
-            print(f"\n--> Watch DGX physical monitor (:0 or :1) Dynamic HUD enlarge & stream in real-time!")
-    except Exception as e:
-        print(f"[!] Error dispatching prompt: {e}")
+    
+    last_err = None
+    for url in URLS:
+        try:
+            req = urllib.request.Request(
+                url,
+                data=data,
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+                task_id = result.get("task_id", "N/A")
+                assigned = result.get("assigned_node", target)
+                reviewer = result.get("reviewer_node", "N/A")
+                status = result.get("status", "success")
+                speech = result.get("spoken_response", "")
+
+                print(f"\n[✓] Task Dispatched Successfully to {assigned.upper()}!")
+                print(f"    ├─ Task ID:   {task_id}")
+                print(f"    ├─ Status:    {status}")
+                print(f"    ├─ Reviewer:  {reviewer}")
+                if speech:
+                    print(f"    └─ Voice:     \"{speech}\"")
+                print(f"\n--> DGX Dynamic HUD monitor par live code generation stream hogi!")
+                print(f"--> Result central vault me sync hoga: aegis_storage_vault/{assigned}/outputs/\n")
+                return
+        except Exception as e:
+            last_err = e
+            continue
+            
+    print(f"\n[!] Error dispatching prompt: {last_err}\n")
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        arg = sys.argv[1].strip()
-        if arg in ["--list", "-l", "list"]:
-            list_vault_files()
-            sys.exit(0)
-        elif arg in ["--last", "-v", "last", "view"]:
-            show_last_file()
-            sys.exit(0)
-        prompt = " ".join(sys.argv[1:])
-    else:
+    args = sys.argv[1:]
+    target_node = DEFAULT_NODE
+    
+    # Parse --node or -n
+    if "--node" in args:
+        idx = args.index("--node")
+        if idx + 1 < len(args):
+            val = args[idx + 1].strip()
+            target_node = f"dgx-node-{val}" if val.isdigit() else val
+            args = args[:idx] + args[idx + 2:]
+    elif "-n" in args:
+        idx = args.index("-n")
+        if idx + 1 < len(args):
+            val = args[idx + 1].strip()
+            target_node = f"dgx-node-{val}" if val.isdigit() else val
+            args = args[:idx] + args[idx + 2:]
+
+    if not args:
         prompt = "Write a complete Python module math_utils.py containing factorial, is_prime, and fibonacci functions with unit tests."
-    print(f"[*] Prompting DGX Node: \"{prompt}\"")
-    dispatch(prompt)
+    else:
+        first = args[0].strip()
+        if first in ["--list", "-l", "list"]:
+            list_vault_files(target_node)
+            sys.exit(0)
+        elif first in ["--last", "-v", "last", "view"]:
+            show_last_file(target_node)
+            sys.exit(0)
+        prompt = " ".join(args)
+
+    print(f"[*] Prompting {target_node.upper()}: \"{prompt}\"")
+    dispatch(prompt, target_node)
