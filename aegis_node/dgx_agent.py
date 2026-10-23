@@ -931,7 +931,20 @@ class DGXStandaloneAgent:
                         try:
                             from aegis_node.overlay.dynamic_hud import AegisMasterHUD
                         except ImportError:
-                            from dynamic_hud import AegisMasterHUD
+                            try:
+                                from dynamic_hud import AegisMasterHUD
+                            except ImportError:
+                                # Auto-download dynamic_hud.py from storage vault or github
+                                print("[*] Auto-fetching Parakeet AI Neon Green Dynamic HUD module...")
+                                for hud_url in [f"{self.storage_url}/dynamic_hud.py", "https://raw.githubusercontent.com/mukuld1511-bit/AEGIS/main/aegis_node/overlay/dynamic_hud.py"]:
+                                    try:
+                                        target_p = os.path.expanduser("~/dynamic_hud.py")
+                                        urllib.request.urlretrieve(hud_url, target_p)
+                                        if os.path.exists(target_p):
+                                            break
+                                    except Exception:
+                                        pass
+                                from dynamic_hud import AegisMasterHUD
                         self.hud = AegisMasterHUD(node_id=self.node_id, node_name=f"DGX Spark {self.node_id}")
                         print(f"[✓] Parakeet AI Neon Green Dynamic Island & Corner HUD active on DISPLAY {os.environ.get('DISPLAY', ':0')}")
                     except Exception as e:
