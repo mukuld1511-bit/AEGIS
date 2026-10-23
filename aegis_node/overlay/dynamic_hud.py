@@ -559,48 +559,66 @@ class DynamicIslandWidget(QWidget):
     def _apply_theme_styles(self):
         p_hex = self.theme["hex"]
         p_dim = self.theme["hex_dim"]
+        p_col = self.theme["primary"]
+        p_border = f"rgba({p_col.red()}, {p_col.green()}, {p_col.blue()}, 0.38)"
+        role_tag = "CODER" if "1" in self.node_id else ("QA/REVIEW" if "2" in self.node_id else self.theme.get("tag", "NODE").upper())
+        num = "01" if "1" in self.node_id else ("02" if "2" in self.node_id else self.node_id.replace("dgx-node-", ""))
 
-        # Dot
-        self.lbl_dot.setStyleSheet(f"color: {p_hex}; font-size: 11px;")
+        # Glowing Indicator Pip
+        self.lbl_dot.setText("●")
+        self.lbl_dot.setStyleSheet(f"color: {p_hex}; font-size: 10px; padding-left: 2px;")
 
-        # Badge
+        # Designer Pill Identity Badge
+        self.lbl_badge.setText(f"SPARK {num} • {role_tag}")
         self.lbl_badge.setStyleSheet(
-            f"color: #f8fafc; font-size: 11px; font-weight: 700; letter-spacing: 0.8px; "
-            f"font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', sans-serif;"
+            f"background: {p_dim}; color: {p_hex}; border: 1px solid {p_border}; "
+            f"border-radius: 8px; padding: 2px 7px; font-size: 9.5px; font-weight: 700; letter-spacing: 0.6px; "
+            f"font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', 'Ubuntu', sans-serif;"
         )
 
-        # Activity
+        # Smooth Activity Summary
         self.lbl_activity.setStyleSheet(
-            "color: #cbd5e1; font-size: 10px; font-weight: 500; font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;"
+            "color: #e2e8f0; font-size: 10.5px; font-weight: 500; padding-left: 4px; "
+            "font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', sans-serif;"
         )
 
-        # Telem
+        # Telemetry Tag Pill
         self.lbl_telem.setStyleSheet(
-            f"color: {p_hex}; font-size: 10px; font-weight: 600; font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;"
+            f"color: #94a3b8; font-size: 9.5px; font-weight: 600; font-family: 'SF Mono', Consolas, monospace; "
+            f"background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 5px; padding: 2px 6px;"
         )
 
-        # Toggle button
+        # Expand / Toggle Chevron Button
         self.btn_toggle.setStyleSheet(
-            f"QPushButton {{ background: rgba(255, 255, 255, 0.06); color: {p_hex}; border: none; border-radius: 9px; font-weight: bold; font-size: 10px; }} "
-            f"QPushButton:hover {{ background: {p_dim}; color: #ffffff; }}"
+            f"QPushButton {{ background: rgba(255, 255, 255, 0.05); color: #94a3b8; border: 1px solid rgba(255, 255, 255, 0.08); "
+            f"border-radius: 9px; font-size: 10px; font-weight: bold; }} "
+            f"QPushButton:hover {{ background: {p_dim}; color: {p_hex}; border: 1px solid {p_border}; }}"
         )
 
         # Busy row items
         self.lbl_busy_spin.setStyleSheet(f"color: {p_hex}; font-size: 12px; font-weight: bold;")
-        self.lbl_busy_prompt.setStyleSheet("color: #94a3b8; font-size: 10px; font-style: italic;")
+        self.lbl_busy_prompt.setStyleSheet(
+            "color: #cbd5e1; font-size: 10.5px; font-weight: 500; font-style: normal; "
+            "font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', sans-serif;"
+        )
         self.lbl_busy_tag.setStyleSheet(
-            f"background: {p_dim}; color: {p_hex}; font-size: 9px; font-weight: 600; border-radius: 6px; padding: 2px 6px;"
+            f"background: {p_dim}; color: {p_hex}; font-size: 9px; font-weight: 700; border-radius: 5px; "
+            f"padding: 2px 7px; border: 1px solid {p_border};"
         )
 
-        # Hub Title
-        self.lbl_hub_title.setStyleSheet(f"color: {p_hex}; font-size: 11px; font-weight: 700; letter-spacing: 0.8px;")
+        # Hub Header
+        self.lbl_hub_title.setText(f"AEGIS  •  {self.node_id.upper()}  ({self.theme['name']})")
+        self.lbl_hub_title.setStyleSheet(
+            f"color: {p_hex}; font-size: 11.5px; font-weight: 700; letter-spacing: 0.8px; "
+            f"font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', sans-serif;"
+        )
 
         # Tab Widget
         self.tab_widget.setStyleSheet(
-            f"QTabWidget::pane {{ border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; background: rgba(14, 18, 25, 0.94); }} "
-            f"QTabBar::tab {{ background: rgba(22, 27, 38, 0.7); color: #94a3b8; padding: 6px 16px; border-top-left-radius: 6px; border-top-right-radius: 6px; font-size: 10px; font-weight: 600; margin-right: 4px; }} "
+            f"QTabWidget::pane {{ border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; background: rgba(12, 16, 24, 0.95); }} "
+            f"QTabBar::tab {{ background: rgba(20, 25, 36, 0.6); color: #94a3b8; padding: 6px 18px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-size: 10.5px; font-weight: 600; margin-right: 4px; font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; }} "
             f"QTabBar::tab:selected {{ background: {p_dim}; color: {p_hex}; border: 1px solid rgba(255, 255, 255, 0.12); border-bottom: none; }} "
-            f"QTabBar::tab:hover {{ color: #ffffff; }}"
+            f"QTabBar::tab:hover {{ color: #ffffff; background: rgba(30, 38, 54, 0.7); }}"
         )
 
     def _init_tab_work(self):
@@ -879,6 +897,7 @@ class DynamicIslandWidget(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.TextAntialiasing)
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
 
         w = float(self.width())
@@ -890,18 +909,42 @@ class DynamicIslandWidget(QWidget):
 
         p_col = self.theme["primary"]
 
-        # 1. Dark Glassmorphic Backdrop
-        bg_grad = QLinearGradient(0, 0, 0, h)
-        bg_grad.setColorAt(0.0, QColor(14, 18, 26, 245))
-        bg_grad.setColorAt(1.0, QColor(8, 11, 17, 252))
-        painter.setBrush(QBrush(bg_grad))
-
-        # 2. Delicate Specular Border (Apple style)
-        border_col = self.theme["border"] if self.is_busy else COLOR_BORDER_SUBTLE
-        painter.setPen(QPen(border_col, 1.2))
+        # 1. Ambient Soft Pastel Aura (Breathes softly on busy)
+        glow_alpha = 32 if self.is_busy else 16
+        glow_color = QColor(p_col.red(), p_col.green(), p_col.blue(), glow_alpha)
+        painter.setPen(QPen(glow_color, 2.5))
+        painter.setBrush(Qt.NoBrush)
         painter.drawRoundedRect(rect, radius, radius)
 
-        # 3. Subtle Pastel Progress Scanner Wave (When busy)
+        # 2. Dark Frosted Obsidian Glass Body
+        bg_grad = QLinearGradient(0, 0, 0, h)
+        bg_grad.setColorAt(0.0, QColor(16, 21, 31, 246))
+        bg_grad.setColorAt(0.4, QColor(10, 14, 22, 250))
+        bg_grad.setColorAt(1.0, QColor(7, 9, 15, 254))
+        painter.setBrush(QBrush(bg_grad))
+        painter.setPen(Qt.NoPen)
+        painter.drawRoundedRect(rect, radius, radius)
+
+        # 3. Apple Specular Top Rim Highlight (Optical glass depth)
+        spec_path = QPainterPath()
+        spec_path.addRoundedRect(rect, radius, radius)
+        painter.save()
+        painter.setClipPath(spec_path)
+        spec_grad = QLinearGradient(0, 0, 0, min(14.0, h * 0.45))
+        spec_grad.setColorAt(0.0, QColor(255, 255, 255, 36))
+        spec_grad.setColorAt(1.0, QColor(255, 255, 255, 0))
+        painter.setBrush(QBrush(spec_grad))
+        painter.setPen(Qt.NoPen)
+        painter.drawRect(QRectF(0, 0, w, 14))
+        painter.restore()
+
+        # 4. Delicate Specular Border (Apple pastel style)
+        border_col = self.theme["border"] if self.is_busy else QColor(255, 255, 255, 26)
+        painter.setPen(QPen(border_col, 1.1))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRoundedRect(rect, radius, radius)
+
+        # 5. Subtle Pastel Progress Scanner Wave (When busy)
         if self.is_busy and self.state == self.STATE_PILL_BUSY:
             scan_path = QPainterPath()
             scan_path.addRoundedRect(rect, radius, radius)
@@ -909,14 +952,14 @@ class DynamicIslandWidget(QWidget):
             painter.setClipPath(scan_path)
 
             wave_x = (math.sin(self.wave_phase) * 0.5 + 0.5) * w
-            wave_grad = QLinearGradient(wave_x - 80, 0, wave_x + 80, 0)
+            wave_grad = QLinearGradient(wave_x - 90, 0, wave_x + 90, 0)
             wave_grad.setColorAt(0.0, QColor(p_col.red(), p_col.green(), p_col.blue(), 0))
-            wave_grad.setColorAt(0.5, QColor(p_col.red(), p_col.green(), p_col.blue(), 90))
+            wave_grad.setColorAt(0.5, QColor(p_col.red(), p_col.green(), p_col.blue(), 110))
             wave_grad.setColorAt(1.0, QColor(p_col.red(), p_col.green(), p_col.blue(), 0))
 
             painter.setPen(Qt.NoPen)
             painter.setBrush(QBrush(wave_grad))
-            painter.drawRect(QRectF(wave_x - 80, h - 2.5, 160, 2.5))
+            painter.drawRect(QRectF(wave_x - 90, h - 2.5, 180, 2.5))
             painter.restore()
 
 
@@ -930,7 +973,18 @@ class AegisMasterHUD(QObject):
 
         self.app = QApplication.instance()
         if not self.app:
+            try:
+                QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+                QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+            except Exception:
+                pass
             self.app = QApplication(sys.argv)
+
+        # Global Antialiased Designer Font Stack
+        app_font = QFont("-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', 'Ubuntu', sans-serif")
+        app_font.setPointSize(10)
+        app_font.setStyleStrategy(QFont.PreferAntialias | QFont.PreferQuality)
+        self.app.setFont(app_font)
 
         self.orb = None
         self.island = None
