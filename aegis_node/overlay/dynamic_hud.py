@@ -223,7 +223,7 @@ class CornerLogoOrb(QWidget):
         self.update()
 
     def _position_in_corner(self):
-        screen = QApplication.primaryScreen()
+        screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
         if screen:
             avail = screen.availableGeometry()
         else:
@@ -232,7 +232,7 @@ class CornerLogoOrb(QWidget):
         margin_y = 24
         pos_x = int(avail.x() + avail.width() - self.orb_size - margin_x)
         pos_y = int(avail.y() + avail.height() - self.orb_size - margin_y)
-        self.move(pos_x, pos_y)
+        self.setGeometry(pos_x, pos_y, self.orb_size, self.orb_size)
 
     def play_entrance_animation(self):
         self._position_in_corner()
@@ -304,11 +304,11 @@ class CornerLogoOrb(QWidget):
         painter.setBrush(QBrush(halo_grad))
         painter.drawEllipse(QRectF(cx - r * 1.3, cy - r * 1.3, r * 2.6, r * 2.6))
 
-        # 2. Sleek Dark Glass Body
+        # 2. Sleek Translucent Glass Body
         body_grad = QRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 1.2)
-        body_grad.setColorAt(0.0, QColor(24, 28, 38, 245))
-        body_grad.setColorAt(0.7, QColor(14, 17, 24, 250))
-        body_grad.setColorAt(1.0, QColor(9, 12, 17, 255))
+        body_grad.setColorAt(0.0, QColor(32, 40, 58, 195))
+        body_grad.setColorAt(0.65, QColor(18, 24, 36, 185))
+        body_grad.setColorAt(1.0, QColor(10, 14, 24, 210))
         painter.setBrush(QBrush(body_grad))
         painter.setPen(Qt.NoPen)
         painter.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
@@ -457,18 +457,22 @@ class DynamicIslandWidget(QWidget):
 
     def _reposition_center(self):
         screen = QApplication.primaryScreen()
+        screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
         if screen:
             geom = screen.geometry()
             avail = screen.availableGeometry()
         else:
             geom = QRect(0, 0, 1920, 1080)
             avail = geom
+        # True horizontal dead-center on current active monitor
         pos_x = int(geom.x() + (geom.width() - self.cur_w) / 2)
-        pos_y = int(avail.y() + 6 if avail.y() > geom.y() else (geom.y() + 10))
-        self.move(pos_x, pos_y)
+        # Position right below GNOME top bar or at screen top
+        top_offset = avail.y() + 6 if avail.y() > geom.y() else (geom.y() + 10)
+        pos_y = int(top_offset)
+        self.setGeometry(pos_x, pos_y, self.cur_w, self.cur_h)
 
     def play_entrance_animation(self):
-        screen = QApplication.primaryScreen()
+        screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
         if screen:
             geom = screen.geometry()
             avail = screen.availableGeometry()
@@ -482,8 +486,7 @@ class DynamicIslandWidget(QWidget):
         # Position at physical monitor top-center
         pos_x = int(geom.x() + (geom.width() - self.entrance_start_w) / 2)
         self.cur_w = self.entrance_start_w
-        self.setFixedSize(self.cur_w, self.cur_h)
-        self.move(pos_x, self.final_y)
+        self.setGeometry(pos_x, self.final_y, self.cur_w, self.cur_h)
 
         self.entrance_step = 0
         self.entrance_total = 24
@@ -496,78 +499,89 @@ class DynamicIslandWidget(QWidget):
         t = self.entrance_step / float(self.entrance_total)
         ease = ease_in_out(t)
         cur_w = int(self.entrance_start_w + (self.entrance_target_w - self.entrance_start_w) * ease)
-        screen = QApplication.primaryScreen()
-        geom = screen.geometry() if screen else QRect(0, 0, 1920, 1080)
-        pos_x = int(geom.x() + (geom.width() - cur_w) / 2)
         self.cur_w = cur_w
-        self.setFixedSize(cur_w, self.cur_h)
-        self.move(pos_x, self.final_y)
+        self._reposition_center()
         if self.entrance_step >= self.entrance_total:
             self.entrance_timer.stop()
             self.cur_w = self.entrance_target_w
-            self.setFixedSize(self.cur_w, self.cur_h)
             self._reposition_center()
             self.update()
 
     def _init_ui(self):
         self.master_layout = QVBoxLayout(self)
         self.master_layout.setSizeConstraint(QtWidgets.QLayout.SetNoConstraint)
-        self.master_layout.setContentsMargins(10, 4, 10, 4)
+        self.master_layout.setContentsMargins(8, 4, 8, 4)
         self.master_layout.setSpacing(0)
 
         # ── 1. COMPACT IDLE & HORIZONTALLY STRETCHED BUSY CAPSULE (Height 28px inside 36px) ──
         self.pill_bar = QWidget(self)
         self.pill_bar.setFixedHeight(28)
-        pill_layout = QHBoxLayout(self.pill_bar)
-        pill_layout.setContentsMargins(2, 0, 2, 0)
-        pill_layout.setSpacing(8)
+        self.pill_layout = QHBoxLayout(self.pill_bar)
+        self.pill_layout.setContentsMargins(4, 0, 4, 0)
+        self.pill_layout.setSpacing(6)
+
+        # Symmetrical Spacers to center elements perfectly in Idle state
+        self.spacer_left = QtWidgets.QSpacerItem(10, 0, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+        self.pill_layout.addItem(self.spacer_left)
 
         # Left: Soft Pastel Indicator Dot / Spinner / Checkmark
         self.lbl_dot = QLabel("●", self.pill_bar)
-        pill_layout.addWidget(self.lbl_dot)
+        self.lbl_dot.setAlignment(Qt.AlignCenter)
+        self.pill_layout.addWidget(self.lbl_dot)
 
-        # Center Identity Badge (SPARK 02 • QA)
+        # Center Identity Badge (SPARK 01 • CODER)
         self.lbl_badge = QLabel(self.pill_bar)
-        pill_layout.addWidget(self.lbl_badge)
+        self.lbl_badge.setAlignment(Qt.AlignCenter)
+        self.pill_layout.addWidget(self.lbl_badge)
 
         # Activity summary label (Hidden in Idle, visible when horizontally stretched)
         self.lbl_activity = QLabel(self.task_text, self.pill_bar)
+        self.lbl_activity.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
         self.lbl_activity.setVisible(False)
-        pill_layout.addWidget(self.lbl_activity, stretch=1)
+        self.pill_layout.addWidget(self.lbl_activity, stretch=2)
 
         # Model Pill Badge (e.g. 32B, visible when stretched)
         self.lbl_model_pill = QLabel("32B", self.pill_bar)
+        self.lbl_model_pill.setAlignment(Qt.AlignCenter)
         self.lbl_model_pill.setVisible(False)
-        pill_layout.addWidget(self.lbl_model_pill)
+        self.pill_layout.addWidget(self.lbl_model_pill)
 
         # Telemetry info (Hidden in Idle, visible when stretched)
         self.lbl_telem = QLabel(self.gpu_text, self.pill_bar)
+        self.lbl_telem.setAlignment(Qt.AlignCenter)
         self.lbl_telem.setVisible(False)
-        pill_layout.addWidget(self.lbl_telem)
+        self.pill_layout.addWidget(self.lbl_telem)
 
         # Soft Expand Arrow / Toggle
         self.btn_toggle = QPushButton("▾", self.pill_bar)
         self.btn_toggle.setFixedSize(18, 18)
         self.btn_toggle.setCursor(QCursor(Qt.PointingHandCursor))
         self.btn_toggle.clicked.connect(self._toggle_expanded)
-        pill_layout.addWidget(self.btn_toggle)
+        self.pill_layout.addWidget(self.btn_toggle)
+
+        # Right Symmetrical Spacer for Idle Mode Centering
+        self.spacer_right = QtWidgets.QSpacerItem(10, 0, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+        self.pill_layout.addItem(self.spacer_right)
 
         self.master_layout.addWidget(self.pill_bar)
 
-        # ── 2. TASK DONE NOTIFICATION DROPLET CARD (Drops Down) ──────────
+        # ── 2. TASK DONE NOTIFICATION DROPLET CARD (Drops Down, Perfectly Centered) ──
         self.done_card = QWidget(self)
         self.done_card.setVisible(False)
         done_layout = QVBoxLayout(self.done_card)
-        done_layout.setContentsMargins(6, 4, 6, 6)
+        done_layout.setContentsMargins(10, 6, 10, 6)
         done_layout.setSpacing(4)
+        done_layout.setAlignment(Qt.AlignCenter)
 
-        # Row 1: Checkmark + "TASK COMPLETED • SYNCED TO VAULT"
+        # Row 1: Checkmark + "TASK COMPLETED • SYNCED TO VAULT" (Centered)
         row1 = QHBoxLayout()
         row1.setContentsMargins(0, 0, 0, 0)
         row1.setSpacing(6)
+        row1.addStretch(1)
 
         self.lbl_done_tick = QLabel("✓", self.done_card)
         self.lbl_done_tick.setStyleSheet("color: #34D399; font-size: 13px; font-weight: 900;")
+        self.lbl_done_tick.setAlignment(Qt.AlignCenter)
         row1.addWidget(self.lbl_done_tick)
 
         self.lbl_done_header = QLabel("TASK COMPLETED • SYNCED TO VAULT", self.done_card)
@@ -575,25 +589,29 @@ class DynamicIslandWidget(QWidget):
             "color: #F8FAFC; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; "
             "font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', sans-serif;"
         )
+        self.lbl_done_header.setAlignment(Qt.AlignCenter)
         row1.addWidget(self.lbl_done_header)
-        row1.addStretch()
+        row1.addStretch(1)
         done_layout.addLayout(row1)
 
-        # Row 2: File Icon + Details
+        # Row 2: File Icon + Details (Centered)
         row2 = QHBoxLayout()
-        row2.setContentsMargins(4, 0, 0, 0)
+        row2.setContentsMargins(0, 0, 0, 0)
         row2.setSpacing(6)
+        row2.addStretch(1)
 
         self.lbl_done_icon = QLabel("📁", self.done_card)
         self.lbl_done_icon.setStyleSheet("font-size: 11px;")
+        self.lbl_done_icon.setAlignment(Qt.AlignCenter)
         row2.addWidget(self.lbl_done_icon)
 
         self.lbl_done_details = QLabel("solution.py (2.4 KB)  •  qwen2.5-coder:32b", self.done_card)
         self.lbl_done_details.setStyleSheet(
-            "color: #94A3B8; font-size: 10px; font-weight: 500; font-family: 'SF Mono', Consolas, monospace;"
+            "color: #CBD5E1; font-size: 10px; font-weight: 500; font-family: 'SF Mono', Consolas, monospace;"
         )
+        self.lbl_done_details.setAlignment(Qt.AlignCenter)
         row2.addWidget(self.lbl_done_details)
-        row2.addStretch()
+        row2.addStretch(1)
         done_layout.addLayout(row2)
 
         self.master_layout.addWidget(self.done_card)
@@ -701,12 +719,12 @@ class DynamicIslandWidget(QWidget):
             f"font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', sans-serif;"
         )
 
-        # Tab Widget
+        # Tab Widget Frosted Glassmorphism
         self.tab_widget.setStyleSheet(
-            f"QTabWidget::pane {{ border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; background: rgba(12, 16, 24, 0.95); }} "
-            f"QTabBar::tab {{ background: rgba(20, 25, 36, 0.6); color: #94a3b8; padding: 6px 18px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-size: 10.5px; font-weight: 600; margin-right: 4px; font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; }} "
-            f"QTabBar::tab:selected {{ background: {p_dim}; color: {p_hex}; border: 1px solid rgba(255, 255, 255, 0.12); border-bottom: none; }} "
-            f"QTabBar::tab:hover {{ color: #ffffff; background: rgba(30, 38, 54, 0.7); }}"
+            f"QTabWidget::pane {{ border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; background: rgba(14, 18, 28, 0.70); }} "
+            f"QTabBar::tab {{ background: rgba(22, 28, 42, 0.50); color: #94a3b8; padding: 6px 18px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-size: 10.5px; font-weight: 600; margin-right: 4px; font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; }} "
+            f"QTabBar::tab:selected {{ background: {p_dim}; color: {p_hex}; border: 1px solid rgba(255, 255, 255, 0.18); border-bottom: none; }} "
+            f"QTabBar::tab:hover {{ color: #ffffff; background: rgba(36, 44, 64, 0.65); }}"
         )
 
     def _init_tab_work(self):
@@ -714,9 +732,9 @@ class DynamicIslandWidget(QWidget):
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
-        # Task banner
+        # Task banner (Frosted Glass Card)
         self.banner = QFrame(self.tab_work)
-        self.banner.setStyleSheet("background: rgba(22, 27, 38, 0.6); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 6px;")
+        self.banner.setStyleSheet("background: rgba(26, 32, 48, 0.55); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 8px;")
         b_lay = QHBoxLayout(self.banner)
         b_lay.setContentsMargins(8, 4, 8, 4)
 
@@ -731,15 +749,15 @@ class DynamicIslandWidget(QWidget):
 
         layout.addWidget(self.banner)
 
-        # Console text
+        # Console text (Frosted Translucent Terminal)
         self.console = QTextEdit(self.tab_work)
         self.console.setReadOnly(True)
         self.console.setLineWrapMode(QTextEdit.WidgetWidth)
         self.console.setStyleSheet(
-            "QTextEdit { background: #080a0f; color: #e2e8f0; font-family: 'SF Mono', Consolas, monospace; "
-            "font-size: 10.5px; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 6px; } "
-            "QScrollBar:vertical { background: #0c0f16; width: 6px; } "
-            "QScrollBar::handle:vertical { background: #1e2533; border-radius: 3px; }"
+            "QTextEdit { background: rgba(10, 13, 22, 0.65); color: #f1f5f9; font-family: 'SF Mono', Consolas, monospace; "
+            "font-size: 10.5px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 8px; } "
+            "QScrollBar:vertical { background: rgba(12, 15, 24, 0.4); width: 6px; } "
+            "QScrollBar::handle:vertical { background: rgba(255, 255, 255, 0.18); border-radius: 3px; }"
         )
         self.console.append(f"[AEGIS] {self.theme['name']} connected.\n")
         layout.addWidget(self.console, stretch=1)
@@ -747,7 +765,7 @@ class DynamicIslandWidget(QWidget):
         # Clear button
         b_row = QHBoxLayout()
         btn_clr = QPushButton("Clear", self.tab_work)
-        btn_clr.setStyleSheet("background: #19202d; color: #94a3b8; border-radius: 5px; padding: 2px 8px; font-size: 9px;")
+        btn_clr.setStyleSheet("background: rgba(25, 32, 45, 0.6); color: #94a3b8; border-radius: 5px; padding: 2px 8px; font-size: 9px;")
         btn_clr.clicked.connect(self.console.clear)
         b_row.addWidget(btn_clr)
         b_row.addStretch()
@@ -768,7 +786,7 @@ class DynamicIslandWidget(QWidget):
             thm = get_node_theme(nid)
             self.cb_node.addItem(f"{nid.upper()} ({thm['tag']})")
         self.cb_node.setStyleSheet(
-            f"QComboBox {{ background: #131722; color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.1); "
+            f"QComboBox {{ background: rgba(19, 23, 34, 0.7); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.12); "
             f"border-radius: 6px; padding: 3px 8px; font-size: 10.5px; min-width: 200px; }} "
             f"QComboBox QAbstractItemView {{ background: #0c0f16; color: #f8fafc; }}"
         )
@@ -785,7 +803,7 @@ class DynamicIslandWidget(QWidget):
         self.cb_model = QComboBox(self.tab_settings)
         self.cb_model.addItems(["qwen2.5-coder:32b", "llama3.3:70b", "deepseek-coder-v2:16b", "mixtral:8x22b-instruct"])
         self.cb_model.setStyleSheet(
-            f"QComboBox {{ background: #131722; color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.1); "
+            f"QComboBox {{ background: rgba(19, 23, 34, 0.7); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.12); "
             f"border-radius: 6px; padding: 3px 8px; font-size: 10.5px; min-width: 200px; }} "
             f"QComboBox QAbstractItemView {{ background: #0c0f16; color: #f8fafc; }}"
         )
@@ -809,9 +827,9 @@ class DynamicIslandWidget(QWidget):
         layout.setSpacing(10)
 
         grid = QHBoxLayout()
-        # Card 1: GPU
+        # Card 1: GPU (Frosted Glass Card)
         c1 = QFrame(self.tab_telemetry)
-        c1.setStyleSheet("background: #11151f; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 8px;")
+        c1.setStyleSheet("background: rgba(20, 26, 40, 0.55); border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 10px; padding: 10px;")
         l1 = QVBoxLayout(c1)
         t1 = QLabel("Compute Load", c1)
         t1.setStyleSheet("color: #64748b; font-size: 9.5px; font-weight: 600;")
@@ -821,9 +839,9 @@ class DynamicIslandWidget(QWidget):
         l1.addWidget(self.lbl_gpu_val)
         grid.addWidget(c1)
 
-        # Card 2: Temp
+        # Card 2: Temp (Frosted Glass Card)
         c2 = QFrame(self.tab_telemetry)
-        c2.setStyleSheet("background: #11151f; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 8px;")
+        c2.setStyleSheet("background: rgba(20, 26, 40, 0.55); border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 10px; padding: 10px;")
         l2 = QVBoxLayout(c2)
         t2 = QLabel("GPU Temperature", c2)
         t2.setStyleSheet("color: #64748b; font-size: 9.5px; font-weight: 600;")
@@ -834,6 +852,7 @@ class DynamicIslandWidget(QWidget):
         grid.addWidget(c2)
 
         layout.addLayout(grid)
+        layout.addStretch()
         layout.addStretch()
 
     def _on_node_pick(self, idx):
@@ -1048,38 +1067,51 @@ class DynamicIslandWidget(QWidget):
 
         p_col = self.theme["primary"]
 
-        # 1. Ambient Soft Pastel Aura (Breathes softly on busy / alert done)
-        glow_alpha = 36 if self.is_busy else (30 if self.state == self.STATE_ALERT_DONE else 14)
+        # 1. Outer Ambient Soft Pastel Aura (Diffused Apple Glow)
+        glow_alpha = 48 if self.is_busy else (42 if self.state == self.STATE_ALERT_DONE else 22)
         glow_color = QColor(p_col.red(), p_col.green(), p_col.blue(), glow_alpha)
-        painter.setPen(QPen(glow_color, 2.5))
+        painter.setPen(QPen(glow_color, 2.0))
         painter.setBrush(Qt.NoBrush)
-        painter.drawRoundedRect(rect, radius, radius)
+        painter.drawRoundedRect(rect.adjusted(-1, -1, 1, 1), radius + 1, radius + 1)
 
-        # 2. Dark Frosted Obsidian Glass Body
+        # 2. Translucent Frosted Glass Body (Optical Glassmorphism ~75% opacity)
         bg_grad = QLinearGradient(0, 0, 0, h)
-        bg_grad.setColorAt(0.0, QColor(16, 21, 31, 248))
-        bg_grad.setColorAt(0.4, QColor(10, 14, 22, 252))
-        bg_grad.setColorAt(1.0, QColor(7, 9, 15, 255))
+        bg_grad.setColorAt(0.0, QColor(24, 30, 46, 195))
+        bg_grad.setColorAt(0.35, QColor(14, 18, 30, 182))
+        bg_grad.setColorAt(1.0, QColor(8, 11, 20, 205))
         painter.setBrush(QBrush(bg_grad))
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(rect, radius, radius)
 
-        # 3. Apple Specular Top Rim Highlight (Optical glass depth)
+        # 3. Apple Specular Top Rim Highlight (Optical glass refraction depth)
         spec_path = QPainterPath()
         spec_path.addRoundedRect(rect, radius, radius)
         painter.save()
         painter.setClipPath(spec_path)
-        spec_grad = QLinearGradient(0, 0, 0, min(14.0, h * 0.45))
-        spec_grad.setColorAt(0.0, QColor(255, 255, 255, 36))
+        spec_grad = QLinearGradient(0, 0, 0, min(24.0, h * 0.55))
+        spec_grad.setColorAt(0.0, QColor(255, 255, 255, 75))
+        spec_grad.setColorAt(0.22, QColor(255, 255, 255, 25))
         spec_grad.setColorAt(1.0, QColor(255, 255, 255, 0))
         painter.setBrush(QBrush(spec_grad))
         painter.setPen(Qt.NoPen)
-        painter.drawRect(QRectF(0, 0, w, 14))
+        painter.drawRect(QRectF(0, 0, w, 24))
+
+        # Soft pastel tint across the glass interior
+        tint_col = QColor(p_col.red(), p_col.green(), p_col.blue(), 18)
+        painter.setBrush(QBrush(tint_col))
+        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), radius - 1, radius - 1)
         painter.restore()
 
-        # 4. Delicate Specular Border (Apple pastel style)
-        border_col = self.theme["border"] if (self.is_busy or self.state == self.STATE_ALERT_DONE) else QColor(255, 255, 255, 24)
-        painter.setPen(QPen(border_col, 1.1))
+        # 4. Multi-Stop Specular Glass Border (Apple pastel glass rim)
+        if self.is_busy or self.state == self.STATE_ALERT_DONE:
+            border_pen = QPen(QColor(p_col.red(), p_col.green(), p_col.blue(), 150), 1.2)
+        else:
+            border_grad = QLinearGradient(0, 0, 0, h)
+            border_grad.setColorAt(0.0, QColor(255, 255, 255, 80))
+            border_grad.setColorAt(0.4, QColor(255, 255, 255, 30))
+            border_grad.setColorAt(1.0, QColor(p_col.red(), p_col.green(), p_col.blue(), 55))
+            border_pen = QPen(QBrush(border_grad), 1.0)
+        painter.setPen(border_pen)
         painter.setBrush(Qt.NoBrush)
         painter.drawRoundedRect(rect, radius, radius)
 
