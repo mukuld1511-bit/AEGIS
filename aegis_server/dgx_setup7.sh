@@ -41,30 +41,17 @@ mkdir -p "$AEGIS_DIR/workspace"
 
 # 2. Check apps & Python requirements (PyQt5, requests, psutil)
 echo "[2/5] Checking apps & Python dependencies..."
-if ! command -v pip3 > /dev/null 2>&1 && ! command -v pip > /dev/null 2>&1; then
+if ! python3 -c "import PyQt5" > /dev/null 2>&1; then
+    echo "[*] Installing PyQt5 for Apple Dynamic Island Glass HUD..."
     if command -v apt-get > /dev/null 2>&1; then
-        echo "[*] Installing python3-pip..."
-        sudo apt-get update -y > /dev/null 2>&1 && sudo apt-get install -y python3-pip > /dev/null 2>&1 || true
+        sudo apt-get update -y > /dev/null 2>&1 && sudo apt-get install -y python3-pyqt5 python3-pip python3-requests python3-psutil > /dev/null 2>&1 || true
     fi
-fi
-
-PIP_CMD=""
-if command -v pip3 > /dev/null 2>&1; then
-    PIP_CMD="pip3"
-elif command -v pip > /dev/null 2>&1; then
-    PIP_CMD="pip"
-fi
-
-if [ -n "$PIP_CMD" ]; then
     if ! python3 -c "import PyQt5" > /dev/null 2>&1; then
-        echo "[*] Installing PyQt5 for Apple Dynamic Island Glass HUD..."
-        $PIP_CMD install --quiet PyQt5 2>/dev/null || true
-    fi
-    if ! python3 -c "import requests" > /dev/null 2>&1; then
-        $PIP_CMD install --quiet requests 2>/dev/null || true
-    fi
-    if ! python3 -c "import psutil" > /dev/null 2>&1; then
-        $PIP_CMD install --quiet psutil 2>/dev/null || true
+        PIP_FLAGS="--quiet"
+        if pip3 install --help 2>&1 | grep -q "break-system-packages"; then
+            PIP_FLAGS="--quiet --break-system-packages"
+        fi
+        pip3 install $PIP_FLAGS PyQt5 requests psutil 2>/dev/null || pip install $PIP_FLAGS PyQt5 requests psutil 2>/dev/null || true
     fi
 fi
 
@@ -83,15 +70,15 @@ if ! pgrep -f "ollama serve" > /dev/null 2>&1; then
     else
         nohup ollama serve > /dev/null 2>&1 &
     fi
-    sleep 3
+    sleep 2
 fi
 
-# Check and pull model
+# Check and pull model in background so agent HUD launches immediately without blocking
 if command -v ollama > /dev/null 2>&1; then
     BASE_MODEL=$(echo "${MODEL_NAME}" | cut -d: -f1)
     if ! ollama list 2>/dev/null | grep -qi "${BASE_MODEL}"; then
-        echo "[*] Model '${MODEL_NAME}' not found locally on GPU. Downloading now (this may take a few minutes)..."
-        ollama pull "${MODEL_NAME}" || echo "[!] Notice: Ollama pull encountered an issue. The agent will also auto-pull on first task."
+        echo "[*] Model '${MODEL_NAME}' downloading in background so HUD launches immediately..."
+        nohup ollama pull "${MODEL_NAME}" > "$AEGIS_DIR/model_pull.log" 2>&1 &
     else
         echo "[✓] Model '${MODEL_NAME}' is ready on local GPU."
     fi
@@ -120,25 +107,42 @@ fi
 chmod +x "$AGENT_FILE"
 echo "[✓] Agent saved ($(wc -l < "$AGENT_FILE") lines) -> $AGENT_FILE"
 
-# 5. Display & Authorization setup (Always target local physical X11 monitor :0/:1)
+# 5. Display & Authorization setup (Respect active user desktop display)
 ACTIVE_DISP=""
-for d in 0 1 2; do
-    if [ -e "/tmp/.X11-unix/X${d}" ]; then
-        ACTIVE_DISP=":${d}"
-        break
-    fi
-done
-if [ -z "$ACTIVE_DISP" ]; then
-    ACTIVE_DISP="${DISPLAY:-:0}"
+# If DISPLAY is already set and not an SSH forwarding display (e.g. localhost:10.0), use it directly!
+if [ -n "$DISPLAY" ] && [[ "$DISPLAY" != localhost* ]] && [[ "$DISPLAY" != 127.0.0.1* ]]; then
+    ACTIVE_DISP="$DISPLAY"
 fi
 
-for xa in "$HOME/.Xauthority" "/run/user/$(id -u)/gdm/Xauthority" "/run/user/$(id -u)/gdm3/Xauthority"; do
-    if [ -f "$xa" ]; then
-        export XAUTHORITY="$xa"
-        break
+if [ -z "$ACTIVE_DISP" ]; then
+    # Discover active user desktop display from who or w
+    USER_DISP=$(who 2>/dev/null | grep -o '(:[0-9]*)' | head -1 | tr -d '()')
+    if [ -n "$USER_DISP" ]; then
+        ACTIVE_DISP="$USER_DISP"
     fi
-done
+fi
+
+if [ -z "$ACTIVE_DISP" ]; then
+    # Fallback: Check sockets (user session is usually :1 or :0 on modern Ubuntu)
+    for d in 1 0 2; do
+        if [ -e "/tmp/.X11-unix/X${d}" ]; then
+            ACTIVE_DISP=":${d}"
+            break
+        fi
+    done
+fi
+ACTIVE_DISP="${ACTIVE_DISP:-:0}"
+
+if [ -z "$XAUTHORITY" ] || [ ! -f "$XAUTHORITY" ]; then
+    for xa in "$HOME/.Xauthority" "/run/user/$(id -u)/gdm/Xauthority" "/run/user/$(id -u)/gdm3/Xauthority" /run/user/$(id -u)/.mutter-Xwaylandauth* /run/user/$(id -u)/xauth_*; do
+        if [ -f "$xa" ]; then
+            export XAUTHORITY="$xa"
+            break
+        fi
+    done
+fi
 xhost +local: > /dev/null 2>&1 || true
+xhost + > /dev/null 2>&1 || true
 
 # Generate Start, Stop, and Status scripts
 cat <<EOF > "$AEGIS_DIR/start.sh"
@@ -154,13 +158,14 @@ unset WINDOWID
 unset GNOME_TERMINAL_SCREEN
 unset GNOME_TERMINAL_SERVICE
 export DISPLAY="${ACTIVE_DISP}"
-for xa in "\$HOME/.Xauthority" "/run/user/\$(id -u)/gdm/Xauthority" "/run/user/\$(id -u)/gdm3/Xauthority"; do
+for xa in "\$HOME/.Xauthority" "/run/user/\$(id -u)/gdm/Xauthority" "/run/user/\$(id -u)/gdm3/Xauthority" /run/user/\$(id -u)/.mutter-Xwaylandauth* /run/user/\$(id -u)/xauth_*; do
     if [ -f "\$xa" ]; then
         export XAUTHORITY="\$xa"
         break
     fi
 done
 xhost +local: > /dev/null 2>&1 || true
+xhost + > /dev/null 2>&1 || true
 cd "${AEGIS_DIR}"
 nohup python3 "${AGENT_FILE}" \
     --id "${NODE_ID}" \
@@ -204,7 +209,7 @@ ln -sf "$AEGIS_DIR/status.sh" "$HOME/status_${NODE_ID}.sh"
 # Launch agent NOW
 echo "[5/5] Launching AEGIS ${NODE_ID}..."
 "$AEGIS_DIR/start.sh"
-sleep 1.5
+sleep 2
 
 if pgrep -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1; then
     PID=$(pgrep -f "dgx_agent.py --id ${NODE_ID}" | head -1)
@@ -217,10 +222,11 @@ if pgrep -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1; then
     echo "║  Log File:   ${LOG_FILE}                                        "
     echo "║  Model:      ${MODEL_NAME}                                       "
     echo "║                                                                  "
-    echo "║  👉 Terminal band kar sakte ho — background me chalega!         "
+    echo "║  👉 Dynamic Island notch monitor par top-center par dikhega!    "
     echo "║  👉 Live log dekhne ke liye: tail -f ${LOG_FILE}                 "
     echo "╚══════════════════════════════════════════════════════════════════╝"
     echo ""
 else
-    echo "[!] Process started, check log for output: cat ${LOG_FILE}"
+    echo "[!] Process failed to start. Last logs from ${LOG_FILE}:"
+    tail -n 20 "${LOG_FILE}" 2>/dev/null || true
 fi
