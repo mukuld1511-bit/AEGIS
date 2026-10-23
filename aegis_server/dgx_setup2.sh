@@ -28,28 +28,77 @@ echo "║  Model:     ${MODEL_NAME}                                       "
 echo "╚══════════════════════════════════════════════════════════════════╝"
 echo ""
 
-# 1. Stop old agent processes & delete accidental Node 1 files if on this PC
-echo "[1/4] Stopping any existing Node 2 processes and cleaning stale files..."
+# 1. Stop conflicting agent processes & prepare workspace directory
+echo "[1/5] Stopping any existing processes & preparing workspace..."
 pkill -9 -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1 || true
-rm -rf "$HOME/aegis/dgx-node-1" "$HOME/start_dgx-node-1.sh" "$HOME/stop_dgx-node-1.sh" "$HOME/status_dgx-node-1.sh" 2>/dev/null || true
-rm -rf "$HOME/start_aegis_1.sh" "$HOME/stop_aegis_1.sh" "$HOME/status_aegis_1.sh" 2>/dev/null || true
+for other in 1 2 3 4 5 6 7 8; do
+    if [ "dgx-node-${other}" != "${NODE_ID}" ]; then
+        pkill -9 -f "dgx_agent.py --id dgx-node-${other}" > /dev/null 2>&1 || true
+    fi
+done
 sleep 1
-
-# 2. Prepare workspace directory
 mkdir -p "$AEGIS_DIR/workspace"
 
-# Check & install PyQt5 if missing (for pure Apple Dynamic Island glass HUD)
-if ! python3 -c "import PyQt5" > /dev/null 2>&1; then
-    echo "[*] Checking PyQt5 for Apple Dynamic Island HUD..."
-    if command -v pip3 > /dev/null 2>&1; then
-        pip3 install --quiet PyQt5 2>/dev/null || true
-    elif command -v pip > /dev/null 2>&1; then
-        pip install --quiet PyQt5 2>/dev/null || true
+# 2. Check apps & Python requirements (PyQt5, requests, psutil)
+echo "[2/5] Checking apps & Python dependencies..."
+if ! command -v pip3 > /dev/null 2>&1 && ! command -v pip > /dev/null 2>&1; then
+    if command -v apt-get > /dev/null 2>&1; then
+        echo "[*] Installing python3-pip..."
+        sudo apt-get update -y > /dev/null 2>&1 && sudo apt-get install -y python3-pip > /dev/null 2>&1 || true
     fi
 fi
 
-# 3. Download latest standalone agent
-echo "[2/4] Downloading latest dgx_agent.py..."
+PIP_CMD=""
+if command -v pip3 > /dev/null 2>&1; then
+    PIP_CMD="pip3"
+elif command -v pip > /dev/null 2>&1; then
+    PIP_CMD="pip"
+fi
+
+if [ -n "$PIP_CMD" ]; then
+    if ! python3 -c "import PyQt5" > /dev/null 2>&1; then
+        echo "[*] Installing PyQt5 for Apple Dynamic Island Glass HUD..."
+        $PIP_CMD install --quiet PyQt5 2>/dev/null || true
+    fi
+    if ! python3 -c "import requests" > /dev/null 2>&1; then
+        $PIP_CMD install --quiet requests 2>/dev/null || true
+    fi
+    if ! python3 -c "import psutil" > /dev/null 2>&1; then
+        $PIP_CMD install --quiet psutil 2>/dev/null || true
+    fi
+fi
+
+# 3. Check & Install Ollama and verify local model
+echo "[3/5] Verifying Ollama and local model (${MODEL_NAME})..."
+if ! command -v ollama > /dev/null 2>&1; then
+    echo "[*] Ollama not found. Installing Ollama..."
+    curl -fsSL https://ollama.com/install.sh | sh 2>/dev/null || true
+fi
+
+# Ensure Ollama service is running
+if ! pgrep -f "ollama serve" > /dev/null 2>&1; then
+    echo "[*] Starting Ollama service..."
+    if command -v systemctl > /dev/null 2>&1 && systemctl list-unit-files 2>/dev/null | grep -q "ollama.service"; then
+        sudo systemctl start ollama 2>/dev/null || systemctl start ollama 2>/dev/null || nohup ollama serve > /dev/null 2>&1 &
+    else
+        nohup ollama serve > /dev/null 2>&1 &
+    fi
+    sleep 3
+fi
+
+# Check and pull model
+if command -v ollama > /dev/null 2>&1; then
+    BASE_MODEL=$(echo "${MODEL_NAME}" | cut -d: -f1)
+    if ! ollama list 2>/dev/null | grep -qi "${BASE_MODEL}"; then
+        echo "[*] Model '${MODEL_NAME}' not found locally on GPU. Downloading now (this may take a few minutes)..."
+        ollama pull "${MODEL_NAME}" || echo "[!] Notice: Ollama pull encountered an issue. The agent will also auto-pull on first task."
+    else
+        echo "[✓] Model '${MODEL_NAME}' is ready on local GPU."
+    fi
+fi
+
+# 4. Download latest standalone agent
+echo "[4/5] Downloading latest dgx_agent.py..."
 TS=$(date +%s)
 DOWNLOADED=false
 
@@ -71,7 +120,7 @@ fi
 chmod +x "$AGENT_FILE"
 echo "[✓] Agent saved ($(wc -l < "$AGENT_FILE") lines) -> $AGENT_FILE"
 
-# 4. Display & Authorization setup (Always target local physical X11 monitor :0/:1)
+# 5. Display & Authorization setup (Always target local physical X11 monitor :0/:1)
 ACTIVE_DISP=""
 for d in 0 1 2; do
     if [ -e "/tmp/.X11-unix/X${d}" ]; then
@@ -80,7 +129,6 @@ for d in 0 1 2; do
     fi
 done
 if [ -z "$ACTIVE_DISP" ]; then
-    # Fallback only if no local X11 socket found
     ACTIVE_DISP="${DISPLAY:-:0}"
 fi
 
@@ -92,11 +140,15 @@ for xa in "$HOME/.Xauthority" "/run/user/$(id -u)/gdm/Xauthority" "/run/user/$(i
 done
 xhost +local: > /dev/null 2>&1 || true
 
-# 5. Generate Start, Stop, and Status scripts
+# Generate Start, Stop, and Status scripts
 cat <<EOF > "$AEGIS_DIR/start.sh"
 #!/usr/bin/env bash
 pkill -9 -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1 || true
 sleep 0.5
+if ! pgrep -f "ollama serve" > /dev/null 2>&1; then
+    nohup ollama serve > /dev/null 2>&1 &
+    sleep 2
+fi
 export QT_XCB_GL_INTEGRATION=none
 unset WINDOWID
 unset GNOME_TERMINAL_SCREEN
@@ -149,8 +201,8 @@ ln -sf "$AEGIS_DIR/start.sh"  "$HOME/start_${NODE_ID}.sh"
 ln -sf "$AEGIS_DIR/stop.sh"   "$HOME/stop_${NODE_ID}.sh"
 ln -sf "$AEGIS_DIR/status.sh" "$HOME/status_${NODE_ID}.sh"
 
-# 6. Launch agent NOW
-echo "[3/4] Launching AEGIS ${NODE_ID}..."
+# Launch agent NOW
+echo "[5/5] Launching AEGIS ${NODE_ID}..."
 "$AEGIS_DIR/start.sh"
 sleep 1.5
 
@@ -163,6 +215,7 @@ if pgrep -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1; then
     echo "║  PID:        ${PID}                                             "
     echo "║  Display:    ${ACTIVE_DISP} (Apple Dynamic Island Top-Center)   "
     echo "║  Log File:   ${LOG_FILE}                                        "
+    echo "║  Model:      ${MODEL_NAME}                                       "
     echo "║                                                                  "
     echo "║  👉 Terminal band kar sakte ho — background me chalega!         "
     echo "║  👉 Live log dekhne ke liye: tail -f ${LOG_FILE}                 "
