@@ -121,6 +121,7 @@ def create_app(state_mgr: StateManager, orchestrator: Orchestrator, safety: Safe
             raise HTTPException(status_code=404, detail="Node not found")
         return node
 
+    @app.post("/api/heartbeat")
     @app.post("/api/dgx/heartbeat")
     @app.post("/api/client/heartbeat")
     def reverse_heartbeat_poll(telemetry: NodeTelemetry):

@@ -14,17 +14,25 @@ class GPUInfo(BaseModel):
 
 class NodeTelemetry(BaseModel):
     node_id: str
-    name: str
-    ip: str
+    name: str = "DGX Node"
+    ip: str = "127.0.0.1"
     status: str = "online" # online, busy, offline, quarantined
     current_task_id: Optional[str] = None
     cpu_percent: float = 0.0
     ram_percent: float = 0.0
+    ram_used_gb: Optional[float] = 0.0
+    ram_total_gb: Optional[float] = 0.0
     gpu: GPUInfo = Field(default_factory=GPUInfo)
+    gpu_name: Optional[str] = None
+    gpu_percent: Optional[float] = 0.0
+    gpu_temp: Optional[float] = 0.0
     active_model: str = ""
     capabilities: List[str] = Field(default_factory=list)
     active_window: Optional[str] = ""
     idle_time_seconds: float = 0.0
+    idle_seconds: Optional[float] = 0.0
+    pc_id: Optional[str] = None
+    lab_id: Optional[str] = None
     screenshot_b64: Optional[str] = None
     client_type: str = "dgx" # dgx or lab_pc
     os_platform: str = "linux" # linux or windows

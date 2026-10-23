@@ -9,10 +9,10 @@ with open("aegis_node/overlay/dynamic_hud.py", "r", encoding="utf-8") as f:
 with open("aegis_node/dgx_agent.py", "r", encoding="utf-8") as f:
     agent_code = f.read()
 
-# 1. Extract HUD parts: from COLOR_BG_DARK to AegisMasterHUD
-match = re.search(r"(# Color Palette: Parakeet AI Neon Green Dark Mode.*)", hud_code, re.DOTALL)
+# 1. Extract HUD parts: from NODE_PASTEL_THEMES to AegisMasterHUD
+match = re.search(r"(# ── Dynamic Curated Pastel Palettes per Node.*)", hud_code, re.DOTALL)
 if not match:
-    raise Exception("Could not find color palette in dynamic_hud.py")
+    raise Exception("Could not find pastel palettes in dynamic_hud.py")
 hud_classes = match.group(1).strip()
 
 # In AegisMasterHUD, ensure set_expanded and toggle_expand exist
@@ -63,7 +63,7 @@ new_hud_init = """self.hud = None
                 if HAS_PYQT:
                     try:
                         self.hud = AegisMasterHUD(node_id=self.node_id, node_name=f"DGX Spark {self.node_id}")
-                        print(f"[✓] Parakeet AI Neon Green Dynamic Island & Corner HUD active on DISPLAY {os.environ.get('DISPLAY', ':0')}")
+                        print(f"[✓] AEGIS Apple-Style Pastel Dynamic Island & Corner HUD active on DISPLAY {os.environ.get('DISPLAY', ':0')}")
                     except Exception as e:
                         print(f"[!] PyQt5 HUD error ({e}), trying Tkinter...")
                         if HAS_TK:
@@ -82,10 +82,11 @@ core_agent_classes = core_agent_classes[:old_hud_init.start()] + new_hud_init + 
 
 # 4. Construct complete header
 header = '''#!/usr/bin/env python3
-"""AEGIS Standalone DGX Spark Node Agent with Parakeet AI Neon Green HUD (dgx_agent.py).
+"""AEGIS Standalone DGX Spark Node Agent with Apple-Style Pastel Dynamic Island HUD (dgx_agent.py).
 Zero External Dependencies (Self-contained single-file agent + dynamic desktop overlay).
-- Floating Parakeet AI Neon Green Dynamic Island Bar (top-center pill & expandable control hub).
-- Floating Corner Logo Orb (bottom-right 88x88 animated atom with orbital electrons).
+- Minimal Apple-style Dynamic Island Notch (compact idle pill -> stretched live activity -> expanded hub).
+- Curated soft pastel color palette per DGX node (Lavender for Node 1, Sky for Node 2, Mint for Node 3, etc.).
+- Floating Minimal Corner Glass Orb (bottom-right 64x64 animated atom).
 - Outbound polling every 6 seconds to Raspberry Pi Gateway (https://raspberrypi.tailc8c1f6.ts.net).
 - Zero inbound open ports required (100% firewall / NAT traversal).
 - Live NVIDIA GPU telemetry (utilization, VRAM used/total, temp).
@@ -163,9 +164,9 @@ except ImportError:
 
 # 5. Construct __main__ block with bulletproof args & background logging
 main_block = '''if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="AEGIS Standalone DGX Spark Node Agent with Parakeet AI Neon Green HUD")
+    parser = argparse.ArgumentParser(description="AEGIS Standalone DGX Spark Node Agent with Pastel Dynamic Island HUD")
     parser.add_argument("--id", default="dgx-node-1", help="Node ID (e.g., dgx-node-1, dgx-node-2, dgx-node-3)")
-    parser.add_argument("--gateway", default="https://raspberrypi.tailc8c1f6.ts.net", help="Raspberry Pi Tailscale Gateway")
+    parser.add_argument("--gateway", default="http://100.88.197.6:9000", help="AEGIS Coordinator Gateway (PC or Pi)")
     parser.add_argument("--storage", default="http://100.88.197.6:9080", help="AEGIS PC Vault URL")
     parser.add_argument("--model", default=os.environ.get("AEGIS_MODEL", "qwen2.5-coder:32b"), help="Local Ollama model name (e.g. qwen2.5-coder:32b, llama3.3:70b)")
     parser.add_argument("--ctx", type=int, default=int(os.environ.get("AEGIS_NUM_CTX", "65536")), help="Context window token limit (default: 65536, up to 131072)")
@@ -199,7 +200,7 @@ main_block = '''if __name__ == "__main__":
         )
         print("=" * 65)
         print(f" [✓] AEGIS Agent ({args.id}) launched in BACKGROUND (PID: {proc.pid})")
-        print(f" [✓] Parakeet AI Neon Green Dynamic HUD active on DISPLAY {os.environ.get('DISPLAY', ':0')}")
+        print(f" [✓] Apple-Style Pastel Dynamic Island HUD active on DISPLAY {os.environ.get('DISPLAY', ':0')}")
         print(f" [✓] Live agent log streaming to: {log_path}")
         print(f" [✓] Terminal can now be safely CLOSED without stopping the agent.")
         print("=" * 65)

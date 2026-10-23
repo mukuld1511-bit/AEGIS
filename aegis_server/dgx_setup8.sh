@@ -24,7 +24,7 @@ set -e
 # ── 1. Parse Node ID ─────────────────────────────────────────────────
 NODE_ID="${1:-dgx-node-8}"
 STORAGE_URL="${2:-http://100.88.197.6:9080}"
-GATEWAY_URL="${3:-https://raspberrypi.tailc8c1f6.ts.net}"
+GATEWAY_URL="${3:-http://100.88.197.6:9000}"
 
 # Extract node number from ID (dgx-node-3 -> 3)
 NODE_NUM=$(echo "$NODE_ID" | grep -oP '\d+$' || echo "1")
