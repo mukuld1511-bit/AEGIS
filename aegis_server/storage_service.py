@@ -142,46 +142,49 @@ def get_recent_artifacts(limit: int = 20):
 @app.get("/setup.sh")
 @app.get("/dgx_setup.sh")
 def get_standalone_setup():
-    """Serves the universal auto-setup script (default: dgx-node-1)."""
-    return _serve_setup_script(1)
+    """Serves dgx_setup.sh (dgx-node-1)."""
+    return _serve_setup_file(1)
 
 @app.get("/setup/{node_num}")
 def get_standalone_setup_by_num(node_num: int):
-    """Serves the universal auto-setup script for any node (1-8).
+    """Serves the setup script for any node (1-8).
     Usage on DGX: curl -fsSL http://100.88.197.6:9080/setup/2 | bash
     """
     if node_num < 1 or node_num > 8:
         raise HTTPException(status_code=400, detail=f"Invalid node number {node_num}. Must be 1-8.")
-    return _serve_setup_script(node_num)
+    return _serve_setup_file(node_num)
 
-# Backward compat: /setup2, /setup3, etc.
+# Backward compat shortcuts: /setup2, /setup3, etc.
 @app.get("/setup2")
-def get_setup_node2(): return _serve_setup_script(2)
+@app.get("/dgx_setup2.sh")
+def get_setup_node2(): return _serve_setup_file(2)
 @app.get("/setup3")
-def get_setup_node3(): return _serve_setup_script(3)
+@app.get("/dgx_setup3.sh")
+def get_setup_node3(): return _serve_setup_file(3)
 @app.get("/setup4")
-def get_setup_node4(): return _serve_setup_script(4)
+@app.get("/dgx_setup4.sh")
+def get_setup_node4(): return _serve_setup_file(4)
 @app.get("/setup5")
-def get_setup_node5(): return _serve_setup_script(5)
+@app.get("/dgx_setup5.sh")
+def get_setup_node5(): return _serve_setup_file(5)
 @app.get("/setup6")
-def get_setup_node6(): return _serve_setup_script(6)
+@app.get("/dgx_setup6.sh")
+def get_setup_node6(): return _serve_setup_file(6)
 @app.get("/setup7")
-def get_setup_node7(): return _serve_setup_script(7)
+@app.get("/dgx_setup7.sh")
+def get_setup_node7(): return _serve_setup_file(7)
 @app.get("/setup8")
-def get_setup_node8(): return _serve_setup_script(8)
+@app.get("/dgx_setup8.sh")
+def get_setup_node8(): return _serve_setup_file(8)
 
-def _serve_setup_script(node_num: int):
-    """Internal: reads dgx_setup.sh and replaces default NODE_ID for the requested node."""
-    script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "dgx_setup.sh"))
+def _serve_setup_file(node_num: int):
+    """Reads the dedicated dgx_setupN.sh file for the given node number."""
+    filename = "dgx_setup.sh" if node_num == 1 else f"dgx_setup{node_num}.sh"
+    script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), filename))
     if not os.path.exists(script_path):
-        raise HTTPException(status_code=404, detail="dgx_setup.sh not found")
+        raise HTTPException(status_code=404, detail=f"{filename} not found")
     with open(script_path, "r", encoding="utf-8") as f:
         content = f.read().replace("\r\n", "\n")
-    if node_num != 1:
-        content = content.replace(
-            'NODE_ID="${1:-dgx-node-1}"',
-            f'NODE_ID="${{1:-dgx-node-{node_num}}}"'
-        )
     from fastapi.responses import PlainTextResponse
     return PlainTextResponse(content, media_type="text/plain")
 
