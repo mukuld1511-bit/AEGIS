@@ -7,7 +7,7 @@ set -e
 
 NODE_ID="dgx-node-2"
 ROLE="Reviewer & QA"
-GATEWAY_URL="https://labg418pc12.tailc8c1f6.ts.net"
+GATEWAY_URL="https://raspberrypi.tailc8c1f6.ts.net"
 STORAGE_URL="https://labg418pc12.tailc8c1f6.ts.net:8443"
 MODEL_NAME="qwen2.5-coder:32b"
 

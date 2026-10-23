@@ -16,6 +16,7 @@ import urllib.request
 import urllib.error
 
 URLS = [
+    "https://raspberrypi.tailc8c1f6.ts.net/api/command",
     "http://localhost:9000/api/command",
     "https://labg418pc12.tailc8c1f6.ts.net/api/command"
 ]
