@@ -11,38 +11,38 @@ GATEWAY_URL="https://raspberrypi.tailc8c1f6.ts.net"
 STORAGE_URL="https://labg418pc12.tailc8c1f6.ts.net:8443"
 MODEL_NAME="qwen2.5-coder:32b"
 
-AEGIS_HOME="$HOME/aegis/${NODE_ID}"
-AGENT_FILE="$AEGIS_HOME/dgx_agent.py"
-LOG_FILE="$AEGIS_HOME/agent.log"
+AEGIS_DIR="$HOME/aegis/${NODE_ID}"
+AGENT_FILE="$AEGIS_DIR/dgx_agent.py"
+LOG_FILE="$AEGIS_DIR/agent.log"
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════════╗"
 echo "║  🚀 AEGIS DGX Node 1 Setup & Launcher (${ROLE})                 "
 echo "╠══════════════════════════════════════════════════════════════════╣"
 echo "║  Node ID:   ${NODE_ID}                                         "
-echo "║  Directory: ${AEGIS_HOME}                                       "
+echo "║  Directory: ${AEGIS_DIR}                                       "
 echo "║  Gateway:   ${GATEWAY_URL}                                      "
 echo "║  Vault:     ${STORAGE_URL}                                      "
 echo "║  Model:     ${MODEL_NAME}                                       "
 echo "╚══════════════════════════════════════════════════════════════════╝"
 echo ""
 
-# 1. Stop any old agent instance for Node 1
-echo "[1/4] Stopping any existing Node 1 agent..."
+# 1. Stop old agent processes
+echo "[1/4] Stopping any existing Node 1 processes..."
 pkill -9 -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1 || true
 sleep 1
 
-# 2. Prepare directories
-mkdir -p "$AEGIS_HOME/workspace"
+# 2. Prepare workspace directory
+mkdir -p "$AEGIS_DIR/workspace"
 
-# 3. Download fresh standalone agent
+# 3. Download latest standalone agent
 echo "[2/4] Downloading latest dgx_agent.py..."
 TS=$(date +%s)
 DOWNLOADED=false
 
-if curl -fsSL -H "Cache-Control: no-cache" -H "Pragma: no-cache" --connect-timeout 6 "${STORAGE_URL}/dgx_agent.py?v=${TS}" -o "$AGENT_FILE" 2>/dev/null; then
+if curl -fsSL -H "Cache-Control: no-cache" -H "Pragma: no-cache" --connect-timeout 8 "https://raw.githubusercontent.com/mukuld1511-bit/AEGIS/main/aegis_node/dgx_agent.py?v=${TS}" -o "$AGENT_FILE" 2>/dev/null; then
     DOWNLOADED=true
-elif curl -fsSL -H "Cache-Control: no-cache" -H "Pragma: no-cache" --connect-timeout 8 "https://raw.githubusercontent.com/mukuld1511-bit/AEGIS/main/aegis_node/dgx_agent.py?v=${TS}" -o "$AGENT_FILE" 2>/dev/null; then
+elif curl -fsSL -H "Cache-Control: no-cache" -H "Pragma: no-cache" --connect-timeout 6 "${STORAGE_URL}/dgx_agent.py?v=${TS}" -o "$AGENT_FILE" 2>/dev/null; then
     DOWNLOADED=true
 fi
 
@@ -81,17 +81,18 @@ fi
 xhost +local: > /dev/null 2>&1 || true
 
 # 5. Generate Start, Stop, and Status scripts
-cat <<EOF > "$AEGIS_HOME/start.sh"
+cat <<EOF > "$AEGIS_DIR/start.sh"
 #!/usr/bin/env bash
 pkill -9 -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1 || true
 sleep 0.5
+export QT_XCB_GL_INTEGRATION=none
 unset WINDOWID
 unset GNOME_TERMINAL_SCREEN
 unset GNOME_TERMINAL_SERVICE
 export DISPLAY="${ACTIVE_DISP}"
 [ -f "$HOME/.Xauthority" ] && export XAUTHORITY="$HOME/.Xauthority"
 xhost +local: > /dev/null 2>&1 || true
-cd "${AEGIS_HOME}"
+cd "${AEGIS_DIR}"
 nohup python3 "${AGENT_FILE}" \
     --id "${NODE_ID}" \
     --gateway "${GATEWAY_URL}" \
@@ -102,16 +103,16 @@ nohup python3 "${AGENT_FILE}" \
 disown
 echo "● Started ${NODE_ID} in background."
 EOF
-chmod +x "$AEGIS_HOME/start.sh"
+chmod +x "$AEGIS_DIR/start.sh"
 
-cat <<EOF > "$AEGIS_HOME/stop.sh"
+cat <<EOF > "$AEGIS_DIR/stop.sh"
 #!/usr/bin/env bash
 pkill -9 -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1 || true
 echo "○ Stopped ${NODE_ID}."
 EOF
-chmod +x "$AEGIS_HOME/stop.sh"
+chmod +x "$AEGIS_DIR/stop.sh"
 
-cat <<EOF > "$AEGIS_HOME/status.sh"
+cat <<EOF > "$AEGIS_DIR/status.sh"
 #!/usr/bin/env bash
 echo "═══ AEGIS ${NODE_ID} Status ═══"
 if pgrep -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1; then
@@ -121,19 +122,19 @@ else
     echo "○ NOT RUNNING"
 fi
 echo ""
-echo "Last 10 logs:"
-tail -n 10 "${LOG_FILE}" 2>/dev/null || echo "(no logs yet)"
+echo "Last 8 logs:"
+tail -n 8 "${LOG_FILE}" 2>/dev/null || echo "(no logs yet)"
 EOF
-chmod +x "$AEGIS_HOME/status.sh"
+chmod +x "$AEGIS_DIR/status.sh"
 
 # Symlinks in $HOME
-ln -sf "$AEGIS_HOME/start.sh"  "$HOME/start_${NODE_ID}.sh"
-ln -sf "$AEGIS_HOME/stop.sh"   "$HOME/stop_${NODE_ID}.sh"
-ln -sf "$AEGIS_HOME/status.sh" "$HOME/status_${NODE_ID}.sh"
+ln -sf "$AEGIS_DIR/start.sh"  "$HOME/start_${NODE_ID}.sh"
+ln -sf "$AEGIS_DIR/stop.sh"   "$HOME/stop_${NODE_ID}.sh"
+ln -sf "$AEGIS_DIR/status.sh" "$HOME/status_${NODE_ID}.sh"
 
 # 6. Launch agent NOW
 echo "[3/4] Launching AEGIS ${NODE_ID}..."
-"$AEGIS_HOME/start.sh"
+"$AEGIS_DIR/start.sh"
 sleep 1.5
 
 if pgrep -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1; then

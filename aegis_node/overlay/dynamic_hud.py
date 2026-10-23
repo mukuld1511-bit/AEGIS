@@ -14,6 +14,9 @@ import math
 import queue
 import threading
 import subprocess
+
+# Disable OpenGL DRI/Zink driver integration on X11 to eliminate libEGL driver warnings
+os.environ["QT_XCB_GL_INTEGRATION"] = "none"
 from typing import Optional, Dict, Any
 
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -379,6 +382,7 @@ class DynamicIslandWidget(QWidget):
     minimize_to_corner = pyqtSignal()
     node_switched = pyqtSignal(str)
     model_changed = pyqtSignal(str)
+    status_changed = pyqtSignal(str)
 
     STATE_PILL_IDLE = 0
     STATE_PILL_BUSY = 1
@@ -956,6 +960,7 @@ class DynamicIslandWidget(QWidget):
             elif kind == "status":
                 status, title = data
                 self.current_status = status
+                self.status_changed.emit(status)
                 if status in ["BUSY", "COMPUTING"]:
                     self.is_busy = True
                     if title:
@@ -1138,6 +1143,7 @@ class AegisMasterHUD(QObject):
             self.orb.clicked.connect(self._toggle_island)
             self.island.minimize_to_corner.connect(self._minimize_to_corner)
             self.island.node_switched.connect(self._on_node_switched)
+            self.island.status_changed.connect(self._on_island_status_changed)
 
             self.orb.show()
             self.island.show()
@@ -1149,6 +1155,10 @@ class AegisMasterHUD(QObject):
             self.island.play_entrance_animation()
         except Exception as e:
             print(f"[!] AegisMasterHUD init error: {e}")
+
+    def _on_island_status_changed(self, status: str):
+        if self.orb:
+            self.orb.set_busy(status in ["BUSY", "COMPUTING"])
 
     def _toggle_island(self):
         if not self.island:
@@ -1173,8 +1183,6 @@ class AegisMasterHUD(QObject):
     def update_status(self, status: str, title: str = "", task_title: str = "", **kwargs):
         final_title = task_title or title
         self.log_queue.put(("status", (status, final_title)))
-        if self.orb:
-            self.orb.set_busy(status in ["BUSY", "COMPUTING"])
 
     def update_telemetry(self, telem_str: str):
         self.log_queue.put(("telemetry", telem_str))
