@@ -15,10 +15,9 @@ import json
 import urllib.request
 import urllib.error
 
-# Local server fallback + Raspberry Pi Gateway
 URLS = [
-    "http://localhost:9000/api/tasks/submit",
-    "https://raspberrypi.tailc8c1f6.ts.net/api/command"
+    "https://raspberrypi.tailc8c1f6.ts.net/api/command",
+    "http://localhost:9000/api/tasks/submit"
 ]
 
 DEFAULT_NODE = "dgx-node-1"
@@ -80,12 +79,10 @@ def dispatch(prompt_text: str, target: str = DEFAULT_NODE):
                 status = result.get("status", "success")
                 speech = result.get("spoken_response", "")
 
-                print(f"\n[✓] Task Dispatched Successfully to {assigned.upper()}!")
-                print(f"    ├─ Task ID:   {task_id}")
-                print(f"    ├─ Status:    {status}")
-                print(f"    ├─ Reviewer:  {reviewer}")
-                if speech:
-                    print(f"    └─ Voice:     \"{speech}\"")
+                print(f"\n[OK] Task Dispatched Successfully to {assigned.upper()} via Raspberry Pi Gateway!")
+                print(f"     Status:   {status}")
+                if "message" in result:
+                    print(f"     Message:  {result.get('message')}")
                 print(f"\n--> DGX Dynamic HUD monitor par live code generation stream hogi!")
                 print(f"--> Result central vault me sync hoga: aegis_storage_vault/{assigned}/outputs/\n")
                 return
