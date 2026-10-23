@@ -142,6 +142,12 @@ def ease_in_out(t: float) -> float:
     return clamped * clamped * clamped * (clamped * (6.0 * clamped - 15.0) + 10.0)
 
 
+if sys.platform != "win32":
+    for _ev in ["WINDOWID", "GNOME_TERMINAL_SCREEN", "GNOME_TERMINAL_SERVICE"]:
+        if _ev in os.environ:
+            del os.environ[_ev]
+
+
 def make_pure_desktop_overlay(widget):
     """Ensures widget behaves as a pure desktop overlay, 100% invisible to taskbars, docks, and Alt-Tab."""
     if sys.platform != "win32":
@@ -152,19 +158,12 @@ def make_pure_desktop_overlay(widget):
                 "xprop", "-id", str(win_id),
                 "-f", "_NET_WM_STATE", "32a",
                 "-set", "_NET_WM_STATE", "_NET_WM_STATE_SKIP_TASKBAR, _NET_WM_STATE_SKIP_PAGER, _NET_WM_STATE_ABOVE"
-            ], capture_output=True, timeout=0.8)
-            # Use UTILITY window type so GNOME Mutter does NOT treat it as a dock or tile it
+            ], capture_output=True, timeout=0.5)
+            # Break any transient bond to gnome-terminal so it is anchored strictly to the root desktop
             subprocess.run([
                 "xprop", "-id", str(win_id),
-                "-f", "_NET_WM_WINDOW_TYPE", "32a",
-                "-set", "_NET_WM_WINDOW_TYPE", "_NET_WM_WINDOW_TYPE_UTILITY"
-            ], capture_output=True, timeout=0.8)
-            try:
-                subprocess.run([
-                    "xdotool", "windowmove", str(win_id), str(widget.x()), str(widget.y())
-                ], capture_output=True, timeout=0.8)
-            except Exception:
-                pass
+                "-remove", "WM_TRANSIENT_FOR"
+            ], capture_output=True, timeout=0.5)
         except Exception:
             pass
 
@@ -188,8 +187,8 @@ class CornerLogoOrb(QWidget):
         self.is_busy = False
         self.is_hovered = False
 
-        # Pure desktop overlay flags: completely immune to taskbars and dock apps
-        flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+        # Pure desktop overlay flags: root desktop window, completely immune to taskbars and dock apps
+        flags = Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         if hasattr(Qt, "BypassWindowManagerHint"):
             flags |= Qt.BypassWindowManagerHint
         if sys.platform != "win32" and hasattr(Qt, "X11BypassWindowManagerHint"):
@@ -404,8 +403,8 @@ class DynamicIslandWidget(QWidget):
         self.start_w, self.start_h = self.cur_w, self.cur_h
         self.target_w, self.target_h = self.cur_w, self.cur_h
 
-        # Window Flags: Pure desktop overlay immune to dock and taskbar
-        flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+        # Window Flags: Pure root desktop overlay immune to dock and taskbar
+        flags = Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         if hasattr(Qt, "BypassWindowManagerHint"):
             flags |= Qt.BypassWindowManagerHint
         if sys.platform != "win32" and hasattr(Qt, "X11BypassWindowManagerHint"):

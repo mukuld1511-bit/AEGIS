@@ -115,6 +115,9 @@ cat <<EOF > "$AEGIS_HOME/start.sh"
 #!/usr/bin/env bash
 pkill -9 -f "dgx_agent.py" > /dev/null 2>&1 || true
 sleep 0.5
+unset WINDOWID
+unset GNOME_TERMINAL_SCREEN
+unset GNOME_TERMINAL_SERVICE
 export DISPLAY="${ACTIVE_DISP}"
 [ -f "$HOME/.Xauthority" ] && export XAUTHORITY="$HOME/.Xauthority"
 xhost +local: > /dev/null 2>&1 || true
