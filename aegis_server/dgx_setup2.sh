@@ -49,6 +49,8 @@ echo ""
 echo "[1/4] Stopping old agent (if running)..."
 pkill -9 -f "dgx_agent.py" > /dev/null 2>&1 || true
 sleep 1
+# Clean up any accidental Node 1 files on this Node 2 machine
+rm -rf "$HOME/aegis/dgx-node-1" "$HOME/start_aegis_1.sh" "$HOME/stop_aegis_1.sh" "$HOME/status_aegis_1.sh" 2>/dev/null || true
 
 # 2. Download latest agent from local PC Vault or GitHub (with cache busting)
 echo "[2/4] Downloading latest dgx_agent.py..."

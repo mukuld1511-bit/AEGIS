@@ -226,6 +226,9 @@ full_agent = f"{header}\n\n{hud_classes}\n\n{overlay_tk_class}\n\n{core_agent_cl
 with open("aegis_node/dgx_agent.py", "w", encoding="utf-8") as f:
     f.write(full_agent)
 
-print(f"Successfully generated aegis_node/dgx_agent.py ({len(full_agent.splitlines())} lines).")
+import shutil
+shutil.copy2("aegis_node/dgx_agent.py", "aegis_storage_vault/dgx_agent.py")
+
+print(f"Successfully generated aegis_node/dgx_agent.py and synced to aegis_storage_vault/dgx_agent.py ({len(full_agent.splitlines())} lines).")
 py_compile.compile("aegis_node/dgx_agent.py", doraise=True)
 print("Syntax verification passed with ZERO errors!")

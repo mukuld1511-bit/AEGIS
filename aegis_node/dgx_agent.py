@@ -204,17 +204,17 @@ def make_pure_desktop_overlay(widget):
     if sys.platform != "win32":
         try:
             win_id = int(widget.winId())
-            # Skip taskbar, skip pager, always stay above all application windows
-            subprocess.run([
-                "xprop", "-id", str(win_id),
-                "-f", "_NET_WM_STATE", "32a",
-                "-set", "_NET_WM_STATE", "_NET_WM_STATE_SKIP_TASKBAR, _NET_WM_STATE_SKIP_PAGER, _NET_WM_STATE_ABOVE"
-            ], capture_output=True, timeout=0.5)
             # Break any transient bond to gnome-terminal so it is anchored strictly to the root desktop
             subprocess.run([
                 "xprop", "-id", str(win_id),
                 "-remove", "WM_TRANSIENT_FOR"
-            ], capture_output=True, timeout=0.5)
+            ], capture_output=True, timeout=0.3)
+            # Space-separated EWMH atoms (xprop atom format does NOT use commas)
+            subprocess.run([
+                "xprop", "-id", str(win_id),
+                "-f", "_NET_WM_STATE", "32a",
+                "-set", "_NET_WM_STATE", "_NET_WM_STATE_SKIP_TASKBAR _NET_WM_STATE_SKIP_PAGER _NET_WM_STATE_ABOVE"
+            ], capture_output=True, timeout=0.3)
         except Exception:
             pass
 
@@ -238,13 +238,15 @@ class CornerLogoOrb(QWidget):
         self.is_busy = False
         self.is_hovered = False
 
-        # Pure desktop overlay flags: root desktop window, completely immune to taskbars and dock apps
-        flags = Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+        # Pure desktop overlay: Qt.ToolTip unconditionally enables override-redirect in X11
+        # Bypasses Mutter window placement and completely eliminates GNOME dock presence
+        flags = Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         if hasattr(Qt, "BypassWindowManagerHint"):
             flags |= Qt.BypassWindowManagerHint
         if sys.platform != "win32" and hasattr(Qt, "X11BypassWindowManagerHint"):
             flags |= Qt.X11BypassWindowManagerHint
         self.setWindowFlags(flags)
+        self.setWindowTitle("")
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.setAttribute(Qt.WA_X11DoNotAcceptFocus, True)
@@ -269,11 +271,15 @@ class CornerLogoOrb(QWidget):
         self.update()
 
     def _position_in_corner(self):
-        screen = QApplication.primaryScreen().availableGeometry()
+        screen = QApplication.primaryScreen()
+        if screen:
+            avail = screen.availableGeometry()
+        else:
+            avail = QRect(0, 0, 1920, 1080)
         margin_x = 24
         margin_y = 24
-        pos_x = screen.x() + screen.width() - self.orb_size - margin_x
-        pos_y = screen.y() + screen.height() - self.orb_size - margin_y
+        pos_x = int(avail.x() + avail.width() - self.orb_size - margin_x)
+        pos_y = int(avail.y() + avail.height() - self.orb_size - margin_y)
         self.move(pos_x, pos_y)
 
     def play_entrance_animation(self):
@@ -454,13 +460,14 @@ class DynamicIslandWidget(QWidget):
         self.start_w, self.start_h = self.cur_w, self.cur_h
         self.target_w, self.target_h = self.cur_w, self.cur_h
 
-        # Window Flags: Pure root desktop overlay immune to dock and taskbar
-        flags = Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+        # Window Flags: Pure desktop overlay immune to dock and taskbar (Qt.ToolTip enables override-redirect in X11)
+        flags = Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         if hasattr(Qt, "BypassWindowManagerHint"):
             flags |= Qt.BypassWindowManagerHint
         if sys.platform != "win32" and hasattr(Qt, "X11BypassWindowManagerHint"):
             flags |= Qt.X11BypassWindowManagerHint
         self.setWindowFlags(flags)
+        self.setWindowTitle("")
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.setAttribute(Qt.WA_X11DoNotAcceptFocus, True)
@@ -497,25 +504,30 @@ class DynamicIslandWidget(QWidget):
 
     def _reposition_center(self):
         screen = QApplication.primaryScreen()
-        if not screen:
-            return
-        geom = screen.geometry()
-        avail = screen.availableGeometry()
-        # Physical monitor horizontal center (unaffected by side docks)
-        pos_x = geom.x() + int((geom.width() - self.cur_w) / 2)
-        # Anchor cleanly beneath GNOME top bar or top screen margin
-        pos_y = avail.y() + (6 if avail.y() > geom.y() else 10)
+        if screen:
+            geom = screen.geometry()
+            avail = screen.availableGeometry()
+        else:
+            geom = QRect(0, 0, 1920, 1080)
+            avail = geom
+        pos_x = int(geom.x() + (geom.width() - self.cur_w) / 2)
+        pos_y = int(avail.y() + 6 if avail.y() > geom.y() else (geom.y() + 10))
         self.move(pos_x, pos_y)
 
     def play_entrance_animation(self):
-        geom = QApplication.primaryScreen().geometry()
-        avail = QApplication.primaryScreen().availableGeometry()
-        self.final_y = avail.y() + (6 if avail.y() > geom.y() else 10)
+        screen = QApplication.primaryScreen()
+        if screen:
+            geom = screen.geometry()
+            avail = screen.availableGeometry()
+        else:
+            geom = QRect(0, 0, 1920, 1080)
+            avail = geom
+        self.final_y = int(avail.y() + 6 if avail.y() > geom.y() else (geom.y() + 10))
         self.entrance_start_w = 70
         self.entrance_target_w = self.cur_w
 
-        # Position at top-center with mini hardware notch width
-        pos_x = geom.x() + int((geom.width() - self.entrance_start_w) / 2)
+        # Position at physical monitor top-center
+        pos_x = int(geom.x() + (geom.width() - self.entrance_start_w) / 2)
         self.cur_w = self.entrance_start_w
         self.setFixedSize(self.cur_w, self.cur_h)
         self.move(pos_x, self.final_y)
@@ -531,8 +543,9 @@ class DynamicIslandWidget(QWidget):
         t = self.entrance_step / float(self.entrance_total)
         ease = ease_in_out(t)
         cur_w = int(self.entrance_start_w + (self.entrance_target_w - self.entrance_start_w) * ease)
-        geom = QApplication.primaryScreen().geometry()
-        pos_x = geom.x() + int((geom.width() - cur_w) / 2)
+        screen = QApplication.primaryScreen()
+        geom = screen.geometry() if screen else QRect(0, 0, 1920, 1080)
+        pos_x = int(geom.x() + (geom.width() - cur_w) / 2)
         self.cur_w = cur_w
         self.setFixedSize(cur_w, self.cur_h)
         self.move(pos_x, self.final_y)
@@ -1147,7 +1160,7 @@ class AegisMasterHUD(QObject):
                 pass
             self.app = QApplication(sys.argv)
 
-        self.app.setApplicationName("AegisOverlay")
+        self.app.setApplicationName("")
         if hasattr(self.app, "setDesktopFileName"):
             self.app.setDesktopFileName("")
 
