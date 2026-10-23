@@ -142,12 +142,38 @@ def get_recent_artifacts(limit: int = 20):
 @app.get("/setup.sh")
 @app.get("/dgx_setup.sh")
 def get_standalone_setup():
-    """Serves the standalone 1-liner auto-setup script for remote DGX Spark nodes."""
+    """Serves the standalone 1-liner auto-setup script for remote DGX Spark nodes (default: dgx-node-1)."""
     script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "dgx_setup.sh"))
     if not os.path.exists(script_path):
         raise HTTPException(status_code=404, detail="dgx_setup.sh not found")
     with open(script_path, "r", encoding="utf-8") as f:
         content = f.read().replace("\r\n", "\n")
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(content, media_type="text/plain")
+
+@app.get("/setup2")
+@app.get("/setup2.sh")
+def get_standalone_setup_node2():
+    """Serves the 1-liner auto-setup script defaulting directly to dgx-node-2."""
+    script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "dgx_setup.sh"))
+    if not os.path.exists(script_path):
+        raise HTTPException(status_code=404, detail="dgx_setup.sh not found")
+    with open(script_path, "r", encoding="utf-8") as f:
+        content = f.read().replace("\r\n", "\n")
+    content = content.replace('NODE_ID=${1:-"dgx-node-1"}', 'NODE_ID=${1:-"dgx-node-2"}')
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(content, media_type="text/plain")
+
+@app.get("/setup3")
+@app.get("/setup3.sh")
+def get_standalone_setup_node3():
+    """Serves the 1-liner auto-setup script defaulting directly to dgx-node-3."""
+    script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "dgx_setup.sh"))
+    if not os.path.exists(script_path):
+        raise HTTPException(status_code=404, detail="dgx_setup.sh not found")
+    with open(script_path, "r", encoding="utf-8") as f:
+        content = f.read().replace("\r\n", "\n")
+    content = content.replace('NODE_ID=${1:-"dgx-node-1"}', 'NODE_ID=${1:-"dgx-node-3"}')
     from fastapi.responses import PlainTextResponse
     return PlainTextResponse(content, media_type="text/plain")
 
@@ -182,6 +208,17 @@ def get_standalone_dgx_agent():
     if not os.path.exists(agent_path):
         raise HTTPException(status_code=404, detail="dgx_agent.py not found")
     with open(agent_path, "r", encoding="utf-8") as f:
+        content = f.read().replace("\r\n", "\n")
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(content, media_type="text/x-python")
+
+@app.get("/dynamic_hud.py")
+def get_dynamic_hud():
+    """Serves the Parakeet AI Neon Green Dynamic Island & Corner HUD module."""
+    hud_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "aegis_node", "overlay", "dynamic_hud.py"))
+    if not os.path.exists(hud_path):
+        raise HTTPException(status_code=404, detail="dynamic_hud.py not found")
+    with open(hud_path, "r", encoding="utf-8") as f:
         content = f.read().replace("\r\n", "\n")
     from fastapi.responses import PlainTextResponse
     return PlainTextResponse(content, media_type="text/x-python")

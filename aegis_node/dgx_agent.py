@@ -912,17 +912,26 @@ class DGXStandaloneAgent:
         self.hud = None
         if self.show_hud:
             try:
-                if "DISPLAY" not in os.environ and sys.platform != "win32":
-                    for disp in [":0", ":1"]:
-                        if os.path.exists(f"/tmp/.X11-unix/X{disp.replace(':', '')}"):
-                            os.environ["DISPLAY"] = disp
-                            break
+                if sys.platform != "win32":
                     if "DISPLAY" not in os.environ:
-                        os.environ["DISPLAY"] = ":0"
+                        for disp in [":0", ":1"]:
+                            if os.path.exists(f"/tmp/.X11-unix/X{disp.replace(':', '')}"):
+                                os.environ["DISPLAY"] = disp
+                                break
+                        if "DISPLAY" not in os.environ:
+                            os.environ["DISPLAY"] = ":0"
+
+                    if "XAUTHORITY" not in os.environ:
+                        user_xauth = os.path.expanduser("~/.Xauthority")
+                        if os.path.exists(user_xauth):
+                            os.environ["XAUTHORITY"] = user_xauth
 
                 if HAS_PYQT:
                     try:
-                        from aegis_node.overlay.dynamic_hud import AegisMasterHUD
+                        try:
+                            from aegis_node.overlay.dynamic_hud import AegisMasterHUD
+                        except ImportError:
+                            from dynamic_hud import AegisMasterHUD
                         self.hud = AegisMasterHUD(node_id=self.node_id, node_name=f"DGX Spark {self.node_id}")
                         print(f"[✓] Parakeet AI Neon Green Dynamic Island & Corner HUD active on DISPLAY {os.environ.get('DISPLAY', ':0')}")
                     except Exception as e:
