@@ -9,8 +9,8 @@
 # ==============================================================================
 
 NODE_ID="${1:-dgx-node-1}"
-STORAGE_URL="${2:-http://100.88.197.6:9080}"
-GATEWAY_URL="${3:-http://100.88.197.6:9000}"
+STORAGE_URL="${2:-https://labg418pc12.tailc8c1f6.ts.net:8443}"
+GATEWAY_URL="${3:-https://labg418pc12.tailc8c1f6.ts.net}"
 
 # Extract number
 NODE_NUM=$(echo "$NODE_ID" | grep -oP '\d+$' || echo "1")

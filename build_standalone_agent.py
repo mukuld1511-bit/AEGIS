@@ -166,8 +166,8 @@ except ImportError:
 main_block = '''if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AEGIS Standalone DGX Spark Node Agent with Pastel Dynamic Island HUD")
     parser.add_argument("--id", default="dgx-node-1", help="Node ID (e.g., dgx-node-1, dgx-node-2, dgx-node-3)")
-    parser.add_argument("--gateway", default="http://100.88.197.6:9000", help="AEGIS Coordinator Gateway (PC or Pi)")
-    parser.add_argument("--storage", default="http://100.88.197.6:9080", help="AEGIS PC Vault URL")
+    parser.add_argument("--gateway", default="https://labg418pc12.tailc8c1f6.ts.net", help="AEGIS Coordinator Gateway")
+    parser.add_argument("--storage", default="https://labg418pc12.tailc8c1f6.ts.net:8443", help="AEGIS PC Vault URL")
     parser.add_argument("--model", default=os.environ.get("AEGIS_MODEL", "qwen2.5-coder:32b"), help="Local Ollama model name (e.g. qwen2.5-coder:32b, llama3.3:70b)")
     parser.add_argument("--ctx", type=int, default=int(os.environ.get("AEGIS_NUM_CTX", "65536")), help="Context window token limit (default: 65536, up to 131072)")
     parser.add_argument("--interval", type=float, default=6.0, help="Heartbeat interval in seconds")
