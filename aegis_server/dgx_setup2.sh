@@ -47,7 +47,7 @@ echo ""
 
 # 1. Stop any old instance of THIS node
 echo "[1/4] Stopping old agent (if running)..."
-pkill -9 -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1 || true
+pkill -9 -f "dgx_agent.py" > /dev/null 2>&1 || true
 sleep 1
 
 # 2. Download latest agent from local PC Vault or GitHub
@@ -112,7 +112,7 @@ xhost +local: > /dev/null 2>&1 || true
 # 4. Generate standalone launcher & stop scripts
 cat <<EOF > "$AEGIS_HOME/start.sh"
 #!/usr/bin/env bash
-pkill -9 -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1 || true
+pkill -9 -f "dgx_agent.py" > /dev/null 2>&1 || true
 sleep 0.5
 export DISPLAY="${ACTIVE_DISP}"
 [ -f "$HOME/.Xauthority" ] && export XAUTHORITY="$HOME/.Xauthority"
@@ -130,7 +130,7 @@ chmod +x "$AEGIS_HOME/start.sh"
 
 cat <<EOF > "$AEGIS_HOME/stop.sh"
 #!/usr/bin/env bash
-pkill -9 -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1 || true
+pkill -9 -f "dgx_agent.py" > /dev/null 2>&1 || true
 echo "[✓] AEGIS ${NODE_ID} stopped."
 EOF
 chmod +x "$AEGIS_HOME/stop.sh"

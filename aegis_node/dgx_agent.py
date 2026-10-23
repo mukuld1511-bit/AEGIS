@@ -238,28 +238,9 @@ class CornerLogoOrb(QWidget):
         self.move(pos_x, pos_y)
 
     def play_entrance_animation(self):
-        screen = QApplication.primaryScreen().availableGeometry()
-        margin_x = 24
-        margin_y = 24
-        self.final_x = screen.x() + screen.width() - self.orb_size - margin_x
-        self.final_y = screen.y() + screen.height() - self.orb_size - margin_y
-        self.start_y = screen.y() + screen.height() + 70
-        self.move(self.final_x, self.start_y)
-
-        self.entrance_step = 0
-        self.entrance_total = 22
-        self.entrance_timer = QTimer(self)
-        self.entrance_timer.timeout.connect(self._entrance_tick)
-        self.entrance_timer.start(16)
-
-    def _entrance_tick(self):
-        self.entrance_step += 1
-        t = self.entrance_step / float(self.entrance_total)
-        ease = 1.0 - math.pow(1.0 - t, 4)
-        cur_y = int(self.start_y + (self.final_y - self.start_y) * ease)
-        self.move(self.final_x, cur_y)
-        if self.entrance_step >= self.entrance_total:
-            self.entrance_timer.stop()
+        self._position_in_corner()
+        self.pulse_phase = 0.0
+        self.update()
 
     def _tick(self):
         speed = 0.07 if self.is_busy else 0.03
@@ -482,11 +463,15 @@ class DynamicIslandWidget(QWidget):
     def play_entrance_animation(self):
         geom = QApplication.primaryScreen().geometry()
         avail = QApplication.primaryScreen().availableGeometry()
-        self.final_x = geom.x() + int((geom.width() - self.cur_w) / 2)
         self.final_y = avail.y() + (6 if avail.y() > geom.y() else 10)
-        self.start_y = avail.y() - self.cur_h - 20
+        self.entrance_start_w = 70
+        self.entrance_target_w = self.cur_w
+
+        # Position at top-center with mini hardware notch width
+        pos_x = geom.x() + int((geom.width() - self.entrance_start_w) / 2)
+        self.cur_w = self.entrance_start_w
         self.setFixedSize(self.cur_w, self.cur_h)
-        self.move(self.final_x, self.start_y)
+        self.move(pos_x, self.final_y)
 
         self.entrance_step = 0
         self.entrance_total = 22
@@ -498,10 +483,18 @@ class DynamicIslandWidget(QWidget):
         self.entrance_step += 1
         t = self.entrance_step / float(self.entrance_total)
         ease = 1.0 - math.pow(1.0 - t, 4)
-        cur_y = int(self.start_y + (self.final_y - self.start_y) * ease)
-        self.move(self.final_x, cur_y)
+        cur_w = int(self.entrance_start_w + (self.entrance_target_w - self.entrance_start_w) * ease)
+        geom = QApplication.primaryScreen().geometry()
+        pos_x = geom.x() + int((geom.width() - cur_w) / 2)
+        self.cur_w = cur_w
+        self.setFixedSize(cur_w, self.cur_h)
+        self.move(pos_x, self.final_y)
         if self.entrance_step >= self.entrance_total:
             self.entrance_timer.stop()
+            self.cur_w = self.entrance_target_w
+            self.setFixedSize(self.cur_w, self.cur_h)
+            self._reposition_center()
+            self.update()
 
     def _init_ui(self):
         self.master_layout = QVBoxLayout(self)
