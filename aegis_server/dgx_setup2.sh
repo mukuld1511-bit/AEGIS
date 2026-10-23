@@ -4,6 +4,7 @@
 # Node: dgx-node-2 (Reviewer & QA)
 # ==============================================================================
 set -e
+cd "$HOME"
 
 NODE_ID="dgx-node-2"
 ROLE="Reviewer & QA"
@@ -37,6 +38,16 @@ sleep 1
 # 2. Prepare workspace directory
 mkdir -p "$AEGIS_DIR/workspace"
 
+# Check & install PyQt5 if missing (for pure Apple Dynamic Island glass HUD)
+if ! python3 -c "import PyQt5" > /dev/null 2>&1; then
+    echo "[*] Checking PyQt5 for Apple Dynamic Island HUD..."
+    if command -v pip3 > /dev/null 2>&1; then
+        pip3 install --quiet PyQt5 2>/dev/null || true
+    elif command -v pip > /dev/null 2>&1; then
+        pip install --quiet PyQt5 2>/dev/null || true
+    fi
+fi
+
 # 3. Download latest standalone agent
 echo "[2/4] Downloading latest dgx_agent.py..."
 TS=$(date +%s)
@@ -44,7 +55,7 @@ DOWNLOADED=false
 
 if curl -fsSL -H "Cache-Control: no-cache" -H "Pragma: no-cache" --connect-timeout 8 "https://raw.githubusercontent.com/mukuld1511-bit/AEGIS/main/aegis_node/dgx_agent.py?v=${TS}" -o "$AGENT_FILE" 2>/dev/null; then
     DOWNLOADED=true
-elif curl -fsSL -H "Cache-Control: no-cache" -H "Pragma: no-cache" --connect-timeout 6 "${STORAGE_URL}/dgx_agent.py?v=${TS}" -o "$AGENT_FILE" 2>/dev/null; then
+elif curl -k -fsSL -H "Cache-Control: no-cache" -H "Pragma: no-cache" --connect-timeout 6 "${STORAGE_URL}/dgx_agent.py?v=${TS}" -o "$AGENT_FILE" 2>/dev/null; then
     DOWNLOADED=true
 fi
 
@@ -60,26 +71,25 @@ fi
 chmod +x "$AGENT_FILE"
 echo "[✓] Agent saved ($(wc -l < "$AGENT_FILE") lines) -> $AGENT_FILE"
 
-# 4. Display & Authorization setup
-ACTIVE_DISP="${DISPLAY:-}"
+# 4. Display & Authorization setup (Always target local physical X11 monitor :0/:1)
+ACTIVE_DISP=""
+for d in 0 1 2; do
+    if [ -e "/tmp/.X11-unix/X${d}" ]; then
+        ACTIVE_DISP=":${d}"
+        break
+    fi
+done
 if [ -z "$ACTIVE_DISP" ]; then
-    for d in 0 1 2; do
-        if [ -e "/tmp/.X11-unix/X${d}" ]; then
-            ACTIVE_DISP=":${d}"
-            break
-        fi
-    done
-    [ -z "$ACTIVE_DISP" ] && ACTIVE_DISP=":0"
+    # Fallback only if no local X11 socket found
+    ACTIVE_DISP="${DISPLAY:-:0}"
 fi
 
-if [ -z "${XAUTHORITY:-}" ]; then
-    for xa in "$HOME/.Xauthority" "/run/user/$(id -u)/gdm/Xauthority" "/run/user/$(id -u)/gdm3/Xauthority"; do
-        if [ -f "$xa" ]; then
-            export XAUTHORITY="$xa"
-            break
-        fi
-    done
-fi
+for xa in "$HOME/.Xauthority" "/run/user/$(id -u)/gdm/Xauthority" "/run/user/$(id -u)/gdm3/Xauthority"; do
+    if [ -f "$xa" ]; then
+        export XAUTHORITY="$xa"
+        break
+    fi
+done
 xhost +local: > /dev/null 2>&1 || true
 
 # 5. Generate Start, Stop, and Status scripts
@@ -92,7 +102,12 @@ unset WINDOWID
 unset GNOME_TERMINAL_SCREEN
 unset GNOME_TERMINAL_SERVICE
 export DISPLAY="${ACTIVE_DISP}"
-[ -f "$HOME/.Xauthority" ] && export XAUTHORITY="$HOME/.Xauthority"
+for xa in "\$HOME/.Xauthority" "/run/user/\$(id -u)/gdm/Xauthority" "/run/user/\$(id -u)/gdm3/Xauthority"; do
+    if [ -f "\$xa" ]; then
+        export XAUTHORITY="\$xa"
+        break
+    fi
+done
 xhost +local: > /dev/null 2>&1 || true
 cd "${AEGIS_DIR}"
 nohup python3 "${AGENT_FILE}" \
