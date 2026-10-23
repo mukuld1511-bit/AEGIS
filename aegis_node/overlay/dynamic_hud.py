@@ -13,6 +13,7 @@ import os
 import math
 import queue
 import threading
+import subprocess
 from typing import Optional, Dict, Any
 
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -131,6 +132,25 @@ COLOR_TEXT_MUTED = QColor(148, 163, 184, 230)    # Soft Slate Dim
 COLOR_BORDER_SUBTLE = QColor(255, 255, 255, 20)  # Apple Ultra-Thin Specular Border
 
 
+def make_pure_desktop_overlay(widget):
+    """Ensures widget behaves as a pure desktop overlay, 100% invisible to taskbars, docks, and Alt-Tab."""
+    if sys.platform != "win32":
+        try:
+            win_id = int(widget.winId())
+            subprocess.run([
+                "xprop", "-id", str(win_id),
+                "-f", "_NET_WM_STATE", "32a",
+                "-set", "_NET_WM_STATE", "_NET_WM_STATE_SKIP_TASKBAR, _NET_WM_STATE_SKIP_PAGER, _NET_WM_STATE_ABOVE"
+            ], capture_output=True, timeout=0.8)
+            subprocess.run([
+                "xprop", "-id", str(win_id),
+                "-f", "_NET_WM_WINDOW_TYPE", "32a",
+                "-set", "_NET_WM_WINDOW_TYPE", "_NET_WM_WINDOW_TYPE_DOCK"
+            ], capture_output=True, timeout=0.8)
+        except Exception:
+            pass
+
+
 class CornerLogoOrb(QWidget):
     """Floating Minimal Glass Orb anchored in the bottom-right corner.
     - Soft breathing pastel aura matching node identity.
@@ -150,7 +170,8 @@ class CornerLogoOrb(QWidget):
         self.is_busy = False
         self.is_hovered = False
 
-        flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+        # Pure desktop overlay flags: completely immune to taskbars and dock apps
+        flags = Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         if sys.platform != "win32":
             flags |= Qt.X11BypassWindowManagerHint
         self.setWindowFlags(flags)
@@ -360,8 +381,8 @@ class DynamicIslandWidget(QWidget):
         self.start_w, self.start_h = self.cur_w, self.cur_h
         self.target_w, self.target_h = self.cur_w, self.cur_h
 
-        # Window Flags: Bypass taskbar/dock and float seamlessly
-        flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+        # Window Flags: Pure desktop overlay immune to dock and taskbar
+        flags = Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         if sys.platform != "win32":
             flags |= Qt.X11BypassWindowManagerHint
         self.setWindowFlags(flags)
@@ -973,6 +994,10 @@ class AegisMasterHUD(QObject):
                 pass
             self.app = QApplication(sys.argv)
 
+        self.app.setApplicationName("AegisOverlay")
+        if hasattr(self.app, "setDesktopFileName"):
+            self.app.setDesktopFileName("")
+
         # Global Antialiased Designer Font Stack
         app_font = QFont("-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', 'Ubuntu', sans-serif")
         app_font.setPointSize(10)
@@ -1001,6 +1026,9 @@ class AegisMasterHUD(QObject):
 
             self.orb.show()
             self.island.show()
+
+            make_pure_desktop_overlay(self.orb)
+            make_pure_desktop_overlay(self.island)
 
             self.orb.play_entrance_animation()
             self.island.play_entrance_animation()
