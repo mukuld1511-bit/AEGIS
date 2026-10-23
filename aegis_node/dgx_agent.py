@@ -2151,18 +2151,34 @@ class DGXStandaloneAgent:
         print("=" * 65)
 
         gateways = [self.gateway_url, self.fallback_url]
+        hb_tick = 0
 
         while self.is_running:
             telem = self.build_telemetry()
+            hb_tick += 1
+            connected = False
+
             for gw in gateways:
-                # Try Pi /api/heartbeat first, fallback to /api/client/heartbeat
+                if not gw:
+                    continue
                 for ep in ["/api/heartbeat", "/api/client/heartbeat"]:
-                    res = http_post_json(f"{gw}{ep}", telem, timeout=15.0)
+                    res = http_post_json(f"{gw}{ep}", telem, timeout=12.0)
                     if "error" in res and "405" in res["error"]:
-                        continue  # Wrong endpoint method, try next
-                    if "error" in res and "timed out" in res["error"]:
-                        # Normal long-polling cycle completed
-                        break
+                        continue  # Try next endpoint
+                    if "error" in res:
+                        continue  # Network or timeout, try next gateway
+
+                    connected = True
+                    has_task = res.get("has_task") or bool(res.get("task"))
+                    has_cmd = res.get("has_command") or bool(res.get("command"))
+
+                    # Log heartbeat status so terminal is visibly alive
+                    now_str = datetime.now().strftime("%H:%M:%S")
+                    if not has_task and not has_cmd:
+                        if hb_tick % 4 == 1 or hb_tick <= 2:
+                            print(f"[{now_str}] [✓ HEARTBEAT] Polled {gw} -> OK (Standing by)")
+                    else:
+                        print(f"[{now_str}] [★ INCOMING WORK] Task detected from {gw}!")
 
                     # 1. Pi Gateway format: {"status": "ok", "command": ...}
                     cmd = res.get("command")
@@ -2170,7 +2186,6 @@ class DGXStandaloneAgent:
                         if isinstance(cmd, dict):
                             self.handle_command(cmd)
                         elif isinstance(cmd, str):
-                            # Try parsing as JSON command
                             try:
                                 parsed = json.loads(cmd)
                                 if isinstance(parsed, dict) and "command_type" in parsed:
@@ -2179,7 +2194,6 @@ class DGXStandaloneAgent:
                             except Exception:
                                 pass
 
-                            # Check for simple supervisor commands
                             if cmd.startswith("warn:"):
                                 self.handle_command({"command_type": "warn", "payload": {"message": cmd[5:].strip()}})
                             elif cmd in ["lock", "lock:now"]:
@@ -2187,7 +2201,6 @@ class DGXStandaloneAgent:
                             elif cmd in ["unlock", "unlock:now"]:
                                 self.handle_command({"command_type": "unlock", "payload": {}})
                             else:
-                                # String prompt to execute on local GPU!
                                 print(f"[{self.node_id}] Received prompt task from Gateway: {cmd}")
                                 self.execute_task({"prompt": cmd, "task_id": f"tsk_{int(time.time())}"})
                         break
@@ -2198,8 +2211,13 @@ class DGXStandaloneAgent:
                             self.execute_task(res["task"])
                         break
                     elif res.get("status") == "ok":
-                        # Successful heartbeat, no pending command
                         break
+
+                if connected:
+                    break
+
+            if not connected and hb_tick % 3 == 1:
+                print(f"[!] Warning: Could not reach coordinator gateways {gateways}. Retrying in {self.poll_interval}s...")
 
             time.sleep(self.poll_interval)
 

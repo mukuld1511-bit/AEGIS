@@ -1,94 +1,66 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# AEGIS Universal DGX Node Setup & Update Script (Bulletproof - Zero Sudo)
+# AEGIS Standalone DGX Node 2 Setup & Launcher (From Scratch)
+# Node: dgx-node-2 (Reviewer & QA)
 # ==============================================================================
-# SAME PERMANENT COMMAND FOR EVERY NODE:
-#   Node 1: curl -fsSL https://raw.githubusercontent.com/mukuld1511-bit/AEGIS/main/aegis_server/dgx_setup.sh | bash
-#   Node 2: curl -fsSL https://raw.githubusercontent.com/mukuld1511-bit/AEGIS/main/aegis_server/dgx_setup2.sh | bash
-#   Node 3: curl -fsSL https://raw.githubusercontent.com/mukuld1511-bit/AEGIS/main/aegis_server/dgx_setup3.sh | bash
-# ==============================================================================
+set -e
 
-NODE_ID="${1:-dgx-node-2}"
-STORAGE_URL="${2:-https://labg418pc12.tailc8c1f6.ts.net:8443}"
-GATEWAY_URL="${3:-https://labg418pc12.tailc8c1f6.ts.net}"
-
-# Extract number
-NODE_NUM=$(echo "$NODE_ID" | grep -oP '\d+$' || echo "1")
-
-# Default model
+NODE_ID="dgx-node-2"
+ROLE="Reviewer & QA"
+GATEWAY_URL="https://labg418pc12.tailc8c1f6.ts.net"
+STORAGE_URL="https://labg418pc12.tailc8c1f6.ts.net:8443"
 MODEL_NAME="qwen2.5-coder:32b"
-ROLE="Worker"
-case "$NODE_ID" in
-    "dgx-node-1") ROLE="Lead Coder" ;;
-    "dgx-node-2") ROLE="Reviewer & QA" ;;
-    "dgx-node-3") ROLE="Multimodal Vision" ;;
-    "dgx-node-4") ROLE="Writer & Reasoner" ;;
-    "dgx-node-5") ROLE="Security Auditor" ;;
-    "dgx-node-6") ROLE="Visual Studio" ;;
-    "dgx-node-7") ROLE="Tool & Git Agent" ;;
-    "dgx-node-8") ROLE="Doc Synthesizer" ;;
-esac
 
 AEGIS_HOME="$HOME/aegis/${NODE_ID}"
 AGENT_FILE="$AEGIS_HOME/dgx_agent.py"
 LOG_FILE="$AEGIS_HOME/agent.log"
 
-mkdir -p "$AEGIS_HOME"
-
 echo ""
 echo "╔══════════════════════════════════════════════════════════════════╗"
-echo "║  🚀 AEGIS Setup & Launch — ${NODE_ID} (${ROLE})                 "
+echo "║  🚀 AEGIS DGX Node 2 Setup & Launcher (${ROLE})                 "
 echo "╠══════════════════════════════════════════════════════════════════╣"
-echo "║  📁 Folder:  ${AEGIS_HOME}"
-echo "║  🌐 Gateway: ${GATEWAY_URL}"
-echo "║  💾 Vault:   ${STORAGE_URL}"
+echo "║  Node ID:   ${NODE_ID}                                         "
+echo "║  Directory: ${AEGIS_HOME}                                       "
+echo "║  Gateway:   ${GATEWAY_URL}                                      "
+echo "║  Vault:     ${STORAGE_URL}                                      "
+echo "║  Model:     ${MODEL_NAME}                                       "
 echo "╚══════════════════════════════════════════════════════════════════╝"
 echo ""
 
-# 1. Stop any old instance of THIS node
-echo "[1/4] Stopping old agent (if running)..."
-pkill -9 -f "dgx_agent.py" > /dev/null 2>&1 || true
+# 1. Stop any old agent instance for Node 2 & clean old Node 1 traces if mistakenly on this machine
+echo "[1/4] Stopping any existing Node 2 agent and removing stale Node 1 traces..."
+pkill -9 -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1 || true
+rm -rf "$HOME/aegis/dgx-node-1" "$HOME/start_dgx-node-1.sh" "$HOME/stop_dgx-node-1.sh" "$HOME/status_dgx-node-1.sh" 2>/dev/null || true
+rm -rf "$HOME/start_aegis_1.sh" "$HOME/stop_aegis_1.sh" "$HOME/status_aegis_1.sh" 2>/dev/null || true
 sleep 1
-# Clean up any accidental Node 1 files on this Node 2 machine
-rm -rf "$HOME/aegis/dgx-node-1" "$HOME/start_aegis_1.sh" "$HOME/stop_aegis_1.sh" "$HOME/status_aegis_1.sh" 2>/dev/null || true
 
-# 2. Download latest agent from local PC Vault or GitHub (with cache busting)
+# 2. Prepare directories
+mkdir -p "$AEGIS_HOME/workspace"
+
+# 3. Download fresh standalone agent
 echo "[2/4] Downloading latest dgx_agent.py..."
-DOWNLOAD_SUCCESS=false
 TS=$(date +%s)
-if curl -fsSL -H "Cache-Control: no-cache" -H "Pragma: no-cache" --connect-timeout 5 "${STORAGE_URL}/dgx_agent.py?v=${TS}" -o "$AGENT_FILE" 2>/dev/null; then
-    DOWNLOAD_SUCCESS=true
+DOWNLOADED=false
+
+if curl -fsSL -H "Cache-Control: no-cache" -H "Pragma: no-cache" --connect-timeout 6 "${STORAGE_URL}/dgx_agent.py?v=${TS}" -o "$AGENT_FILE" 2>/dev/null; then
+    DOWNLOADED=true
 elif curl -fsSL -H "Cache-Control: no-cache" -H "Pragma: no-cache" --connect-timeout 8 "https://raw.githubusercontent.com/mukuld1511-bit/AEGIS/main/aegis_node/dgx_agent.py?v=${TS}" -o "$AGENT_FILE" 2>/dev/null; then
-    DOWNLOAD_SUCCESS=true
+    DOWNLOADED=true
 fi
 
-if [ "$DOWNLOAD_SUCCESS" = false ] || [ ! -s "$AGENT_FILE" ]; then
-    echo "[!] Download failed from both PC Vault and GitHub. Checking local backup..."
+if [ "$DOWNLOADED" = false ] || [ ! -s "$AGENT_FILE" ]; then
     if [ -s "$HOME/dgx_agent.py" ]; then
         cp "$HOME/dgx_agent.py" "$AGENT_FILE"
         echo "[✓] Using backup ~/dgx_agent.py"
     else
-        echo "[✗] ERROR: Could not fetch dgx_agent.py! Check internet/Tailscale."
+        echo "[✗] ERROR: Could not download dgx_agent.py! Check internet/Tailscale."
         exit 1
     fi
 fi
 chmod +x "$AGENT_FILE"
-cp "$AGENT_FILE" "$HOME/dgx_agent.py" 2>/dev/null || true
-echo "[✓] Agent saved → $AGENT_FILE ($(wc -l < "$AGENT_FILE") lines)"
+echo "[✓] Agent saved ($(wc -l < "$AGENT_FILE") lines) -> $AGENT_FILE"
 
-# 3. Detect Python runtime
-echo "[3/4] Checking Python environment..."
-PY_BIN="python3"
-if ! command -v python3 &> /dev/null; then
-    if command -v python &> /dev/null; then
-        PY_BIN="python"
-    else
-        echo "[✗] ERROR: python3 not found! Please install python3."
-        exit 1
-    fi
-fi
-
-# Detect display
+# 4. Display & Authorization setup
 ACTIVE_DISP="${DISPLAY:-}"
 if [ -z "$ACTIVE_DISP" ]; then
     for d in 0 1 2; do
@@ -99,9 +71,7 @@ if [ -z "$ACTIVE_DISP" ]; then
     done
     [ -z "$ACTIVE_DISP" ] && ACTIVE_DISP=":0"
 fi
-export DISPLAY="$ACTIVE_DISP"
 
-# X11 authorization
 if [ -z "${XAUTHORITY:-}" ]; then
     for xa in "$HOME/.Xauthority" "/run/user/$(id -u)/gdm/Xauthority" "/run/user/$(id -u)/gdm3/Xauthority"; do
         if [ -f "$xa" ]; then
@@ -112,10 +82,10 @@ if [ -z "${XAUTHORITY:-}" ]; then
 fi
 xhost +local: > /dev/null 2>&1 || true
 
-# 4. Generate standalone launcher & stop scripts
+# 5. Generate Start, Stop, and Status scripts
 cat <<EOF > "$AEGIS_HOME/start.sh"
 #!/usr/bin/env bash
-pkill -9 -f "dgx_agent.py" > /dev/null 2>&1 || true
+pkill -9 -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1 || true
 sleep 0.5
 unset WINDOWID
 unset GNOME_TERMINAL_SCREEN
@@ -123,7 +93,8 @@ unset GNOME_TERMINAL_SERVICE
 export DISPLAY="${ACTIVE_DISP}"
 [ -f "$HOME/.Xauthority" ] && export XAUTHORITY="$HOME/.Xauthority"
 xhost +local: > /dev/null 2>&1 || true
-nohup ${PY_BIN} "${AGENT_FILE}" \
+cd "${AEGIS_HOME}"
+nohup python3 "${AGENT_FILE}" \
     --id "${NODE_ID}" \
     --gateway "${GATEWAY_URL}" \
     --storage "${STORAGE_URL}" \
@@ -131,13 +102,14 @@ nohup ${PY_BIN} "${AGENT_FILE}" \
     --ctx 65536 \
     >> "${LOG_FILE}" 2>&1 &
 disown
+echo "● Started ${NODE_ID} in background."
 EOF
 chmod +x "$AEGIS_HOME/start.sh"
 
 cat <<EOF > "$AEGIS_HOME/stop.sh"
 #!/usr/bin/env bash
-pkill -9 -f "dgx_agent.py" > /dev/null 2>&1 || true
-echo "[✓] AEGIS ${NODE_ID} stopped."
+pkill -9 -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1 || true
+echo "○ Stopped ${NODE_ID}."
 EOF
 chmod +x "$AEGIS_HOME/stop.sh"
 
@@ -156,13 +128,13 @@ tail -n 10 "${LOG_FILE}" 2>/dev/null || echo "(no logs yet)"
 EOF
 chmod +x "$AEGIS_HOME/status.sh"
 
-# Convenience symlinks in $HOME
-ln -sf "$AEGIS_HOME/start.sh"  "$HOME/start_aegis_${NODE_NUM}.sh"
-ln -sf "$AEGIS_HOME/stop.sh"   "$HOME/stop_aegis_${NODE_NUM}.sh"
-ln -sf "$AEGIS_HOME/status.sh" "$HOME/status_aegis_${NODE_NUM}.sh"
+# Symlinks in $HOME
+ln -sf "$AEGIS_HOME/start.sh"  "$HOME/start_${NODE_ID}.sh"
+ln -sf "$AEGIS_HOME/stop.sh"   "$HOME/stop_${NODE_ID}.sh"
+ln -sf "$AEGIS_HOME/status.sh" "$HOME/status_${NODE_ID}.sh"
 
-# 5. Launch NOW in background with nohup + disown
-echo "[4/4] Starting agent in background..."
+# 6. Launch agent NOW
+echo "[3/4] Launching AEGIS ${NODE_ID}..."
 "$AEGIS_HOME/start.sh"
 sleep 1.5
 
@@ -170,20 +142,16 @@ if pgrep -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1; then
     PID=$(pgrep -f "dgx_agent.py --id ${NODE_ID}" | head -1)
     echo ""
     echo "╔══════════════════════════════════════════════════════════════════╗"
-    echo "║  ✅ SUCCESS! AEGIS ${NODE_ID} is now RUNNING!                    "
+    echo "║  ✅ SUCCESS! AEGIS ${NODE_ID} (${ROLE}) is now RUNNING!         "
     echo "╠══════════════════════════════════════════════════════════════════╣"
-    echo "║  Process PID:   ${PID}"
-    echo "║  Display:       ${ACTIVE_DISP} (Apple-style Pastel Dynamic Island)"
-    echo "║  Log File:      ${LOG_FILE}"
-    echo "║"
-    echo "║  👉 Aap terminal BAND kar sakte ho — agent background me chalega!"
-    echo "║  👉 Log dekhna ho to: tail -f ${LOG_FILE}"
+    echo "║  PID:        ${PID}                                             "
+    echo "║  Display:    ${ACTIVE_DISP} (Apple Dynamic Island Top-Center)   "
+    echo "║  Log File:   ${LOG_FILE}                                        "
+    echo "║                                                                  "
+    echo "║  👉 Terminal band kar sakte ho — background me chalega!         "
+    echo "║  👉 Live log dekhne ke liye: tail -f ${LOG_FILE}                 "
     echo "╚══════════════════════════════════════════════════════════════════╝"
     echo ""
 else
-    echo ""
-    echo "[!] Process start hua par exit ho gaya. Checking log:"
-    tail -n 15 "$LOG_FILE" 2>/dev/null || echo "(no logs)"
-    echo ""
-    echo "Manually run karke error dekhne ke liye: ${PY_BIN} ${AGENT_FILE} --id ${NODE_ID}"
+    echo "[!] Process started, check log for output: cat ${LOG_FILE}"
 fi
