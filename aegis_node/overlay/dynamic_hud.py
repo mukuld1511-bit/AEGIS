@@ -150,7 +150,7 @@ class CornerLogoOrb(QWidget):
         self.is_busy = False
         self.is_hovered = False
 
-        flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool | Qt.SubWindow
+        flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
         if sys.platform != "win32":
             flags |= Qt.X11BypassWindowManagerHint
         self.setWindowFlags(flags)
@@ -361,7 +361,7 @@ class DynamicIslandWidget(QWidget):
         self.target_w, self.target_h = self.cur_w, self.cur_h
 
         # Window Flags: Bypass taskbar/dock and float seamlessly
-        flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool | Qt.SubWindow
+        flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
         if sys.platform != "win32":
             flags |= Qt.X11BypassWindowManagerHint
         self.setWindowFlags(flags)
