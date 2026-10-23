@@ -1700,7 +1700,7 @@ def http_post_json(url: str, data: dict, timeout: float = 6.0) -> dict:
 
 class DGXStandaloneAgent:
     def __init__(self, node_id: str = "dgx-node-1",
-                 gateway_url: str = "https://raspberrypi.tailc8c1f6.ts.net",
+                 gateway_url: str = "https://labg418pc12.tailc8c1f6.ts.net",
                  fallback_url: str = "http://100.88.197.6:9000",
                  storage_url: str = "https://labg418pc12.tailc8c1f6.ts.net:8443",
                  ollama_url: str = "http://127.0.0.1:11434",
@@ -2206,7 +2206,7 @@ class DGXStandaloneAgent:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="AEGIS Standalone DGX Spark Node Agent with Pastel Dynamic Island HUD")
     parser.add_argument("--id", default="dgx-node-1", help="Node ID (e.g., dgx-node-1, dgx-node-2, dgx-node-3)")
-    parser.add_argument("--gateway", default="https://raspberrypi.tailc8c1f6.ts.net", help="Raspberry Pi Tailscale Gateway")
+    parser.add_argument("--gateway", default="https://labg418pc12.tailc8c1f6.ts.net", help="AEGIS Central Coordinator Gateway")
     parser.add_argument("--storage", default="https://labg418pc12.tailc8c1f6.ts.net:8443", help="AEGIS PC Vault URL")
     parser.add_argument("--model", default=os.environ.get("AEGIS_MODEL", "qwen2.5-coder:32b"), help="Local Ollama model name (e.g. qwen2.5-coder:32b, llama3.3:70b)")
     parser.add_argument("--ctx", type=int, default=int(os.environ.get("AEGIS_NUM_CTX", "65536")), help="Context window token limit (default: 65536, up to 131072)")
