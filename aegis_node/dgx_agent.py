@@ -183,6 +183,16 @@ COLOR_TEXT_MUTED = QColor(148, 163, 184, 230)    # Soft Slate Dim
 COLOR_BORDER_SUBTLE = QColor(255, 255, 255, 20)  # Apple Ultra-Thin Specular Border
 
 
+def ease_in_out(t: float) -> float:
+    """Smooth Apple/Perlin C2-continuous Ease-In Ease-Out animation curve.
+    Starts with gentle acceleration (ease-in), glides fast through the middle,
+    and gently decelerates to a soft stop (ease-out) with zero sudden jumps.
+    """
+    clamped = max(0.0, min(1.0, float(t)))
+    # Smootherstep polynomial: 6t^5 - 15t^4 + 10t^3
+    return clamped * clamped * clamped * (clamped * (6.0 * clamped - 15.0) + 10.0)
+
+
 def make_pure_desktop_overlay(widget):
     """Ensures widget behaves as a pure desktop overlay, 100% invisible to taskbars, docks, and Alt-Tab."""
     if sys.platform != "win32":
@@ -443,10 +453,10 @@ class DynamicIslandWidget(QWidget):
         self.setMouseTracking(True)
         self.setFixedSize(self.cur_w, self.cur_h)
 
-        # Smooth quartic animation
+        # Smooth Ease-In Ease-Out animation
         self.is_animating = False
         self.anim_step = 0
-        self.anim_total = 22
+        self.anim_total = 24
         self.anim_timer = QTimer(self)
         self.anim_timer.timeout.connect(self._animation_tick)
 
@@ -494,7 +504,7 @@ class DynamicIslandWidget(QWidget):
         self.move(pos_x, self.final_y)
 
         self.entrance_step = 0
-        self.entrance_total = 22
+        self.entrance_total = 24
         self.entrance_timer = QTimer(self)
         self.entrance_timer.timeout.connect(self._entrance_tick)
         self.entrance_timer.start(16)
@@ -502,7 +512,7 @@ class DynamicIslandWidget(QWidget):
     def _entrance_tick(self):
         self.entrance_step += 1
         t = self.entrance_step / float(self.entrance_total)
-        ease = 1.0 - math.pow(1.0 - t, 4)
+        ease = ease_in_out(t)
         cur_w = int(self.entrance_start_w + (self.entrance_target_w - self.entrance_start_w) * ease)
         geom = QApplication.primaryScreen().geometry()
         pos_x = geom.x() + int((geom.width() - cur_w) / 2)
@@ -863,8 +873,8 @@ class DynamicIslandWidget(QWidget):
     def _animation_tick(self):
         self.anim_step += 1
         t = self.anim_step / float(self.anim_total)
-        # Smooth quartic ease-out
-        ease = 1.0 - math.pow(1.0 - t, 4)
+        # Fluid Ease-In Ease-Out (C2-continuous smootherstep)
+        ease = ease_in_out(t)
 
         new_w = int(self.start_w + (self.target_w - self.start_w) * ease)
         new_h = int(self.start_h + (self.target_h - self.start_h) * ease)
