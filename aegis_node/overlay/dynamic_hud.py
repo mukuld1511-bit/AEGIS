@@ -28,7 +28,7 @@ from PyQt5.QtWidgets import (
 )
 
 # ── Dynamic Curated Pastel Palettes per Node ──────────────────────────────
-NODE_PASTEL_THEMES: Dict[str, Dict[str, Any]] = {
+NODE_PASTEL_THEMES = {
     "dgx-node-1": {
         "name": "DGX Spark 01 • Lead Coder",
         "primary": QColor(167, 139, 250),     # Soft Pastel Lavender (#A78BFA)
@@ -119,7 +119,7 @@ NODE_PASTEL_THEMES: Dict[str, Dict[str, Any]] = {
     }
 }
 
-def get_node_theme(node_id: str) -> Dict[str, Any]:
+def get_node_theme(node_id: str):
     norm_id = node_id.lower().strip()
     return NODE_PASTEL_THEMES.get(norm_id, NODE_PASTEL_THEMES["dgx-node-1"])
 

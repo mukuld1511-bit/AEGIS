@@ -109,7 +109,7 @@ import urllib.request
 import urllib.error
 import urllib.parse
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Dict, Any, List, Union
 
 # Auto-configure X11 Display & Authority for DGX / Linux GUI HUD
 if sys.platform != "win32":
