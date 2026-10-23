@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""AEGIS Standalone DGX Spark Node Agent with Floating Screen Overlay HUD (dgx_agent.py).
-Zero External Pip Dependencies (Uses Python standard library + Tkinter).
-- Floating Desktop Screen HUD: Borderless, semi-transparent HUD on top-right of DGX monitor (:0).
+"""AEGIS Standalone DGX Spark Node Agent with Parakeet AI Neon Green HUD (dgx_agent.py).
+Zero External Dependencies (Self-contained single-file agent + dynamic desktop overlay).
+- Floating Parakeet AI Neon Green Dynamic Island Bar (top-center pill & expandable control hub).
+- Floating Corner Logo Orb (bottom-right 88x88 animated atom with orbital electrons).
 - Outbound polling every 6 seconds to Raspberry Pi Gateway (https://raspberrypi.tailc8c1f6.ts.net).
 - Zero inbound open ports required (100% firewall / NAT traversal).
 - Live NVIDIA GPU telemetry (utilization, VRAM used/total, temp).
-- Runs local Ollama LLM (deepseek-coder-v2:16b).
+- Runs local Ollama LLM (qwen2.5-coder:32b, llama3.3:70b, deepseek-coder-v2).
 - Auto-syncs generated code to i7 PC Vault (http://100.88.197.6:9080).
 - Live supervisor commands: warn, lock, unlock, capture, pull_model, run_command, execute_task.
 """
@@ -24,18 +25,47 @@ import urllib.request
 import urllib.error
 import urllib.parse
 from datetime import datetime, timezone
+from typing import Optional
 
-# Optional GUI Frameworks for Desktop HUD (Prefer PyQt5 for true 32-bit ARGB glassmorphic circular orb; fallback to Tkinter)
+# Auto-configure X11 Display & Authority for DGX / Linux GUI HUD
+if sys.platform != "win32":
+    if not os.environ.get("DISPLAY"):
+        for disp in [":0", ":1", ":2"]:
+            if os.path.exists(f"/tmp/.X11-unix/X{disp.replace(':', '')}"):
+                os.environ["DISPLAY"] = disp
+                break
+        if not os.environ.get("DISPLAY"):
+            os.environ["DISPLAY"] = ":0"
+
+    if not os.environ.get("XAUTHORITY"):
+        uid = os.getuid() if hasattr(os, "getuid") else 1000
+        possible_auths = [
+            os.path.expanduser("~/.Xauthority"),
+            f"/run/user/{uid}/gdm/Xauthority",
+            f"/run/user/{uid}/gdm3/Xauthority",
+            f"/run/user/{uid}/Xauthority"
+        ]
+        for xauth in possible_auths:
+            if xauth and os.path.exists(xauth):
+                os.environ["XAUTHORITY"] = xauth
+                break
+    try:
+        subprocess.run(["xhost", "+local:"], capture_output=True, timeout=1.0)
+    except Exception:
+        pass
+
+# Optional GUI Frameworks for Desktop HUD (Prefer PyQt5 for true 32-bit ARGB glassmorphic dynamic island; fallback to Tkinter)
 try:
     from PyQt5 import QtCore, QtGui, QtWidgets
-    from PyQt5.QtCore import Qt, QTimer, QRect, QPoint, QRectF
+    from PyQt5.QtCore import Qt, QTimer, QRect, QPoint, QRectF, pyqtSignal, QObject
     from PyQt5.QtGui import (
         QPainter, QColor, QPen, QBrush, QFont, QRadialGradient, 
-        QLinearGradient, QPainterPath, QCursor
+        QLinearGradient, QPainterPath, QCursor, QFontMetrics
     )
     from PyQt5.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
-        QLabel, QTextEdit, QFrame
+        QLabel, QTextEdit, QFrame, QPushButton, QComboBox,
+        QSlider, QCheckBox, QStackedWidget, QTabWidget, QGraphicsDropShadowEffect
     )
     HAS_PYQT = True
 except ImportError:
@@ -47,379 +77,934 @@ try:
 except ImportError:
     HAS_TK = False
 
-if HAS_PYQT:
-    class PyQtHUDWidget(QWidget):
-        """Native 32-bit ARGB Floating Glassmorphic Animated Atom Orb HUD."""
-        def __init__(self, node_id="dgx-node-1", node_name="DGX Spark 01", shared_queue=None):
-            super().__init__()
-            self.node_id = node_id
-            self.node_name = node_name
-            self.log_queue = shared_queue or queue.Queue()
-            self.is_expanded = False
-            self.is_animating = False
-            self.current_status = "ONLINE"
-            self.atom_phase = 0.0
-            self.pulse_phase = 0.0
-            self.gpu_text = "GPU 0%  •  VRAM 0.0/128 GB  •  35°C"
-            self.task_text = "Idle • Ready for assignments"
 
-            # Dimensions
-            self.mini_size = 92
-            self.full_w = 580
-            self.full_h = 420
-            self.cur_w = self.mini_size
-            self.cur_h = self.mini_size
+# Color Palette: Parakeet AI Neon Green Dark Mode
+COLOR_BG_DARK = QColor(10, 14, 20, 240)          # Frosted Deep Dark Glass
+COLOR_CARD_DARK = QColor(17, 24, 34, 230)        # Inner Panel Dark Glass
+COLOR_NEON_GREEN = QColor(0, 255, 136, 255)      # Vibrant Electric Neon Green (#00ff88)
+COLOR_NEON_GLOW = QColor(5, 242, 146, 180)       # Secondary Neon Mint Glow (#05f292)
+COLOR_NEON_DIM = QColor(0, 255, 136, 60)         # Translucent Neon Green
+COLOR_NEON_BORDER = QColor(0, 255, 136, 110)     # Glowing Specular Border
+COLOR_TEXT_WHITE = QColor(248, 250, 252, 255)    # Crisp White
+COLOR_TEXT_DIM = QColor(148, 163, 184, 255)      # Slate Dim
+COLOR_TEXT_NEON = QColor(0, 255, 136, 255)       # Neon Green Accent Text
+COLOR_ROSE_ALERT = QColor(244, 63, 94, 255)      # Rose Warning
 
-            # Window properties
-            self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
-            self.setAttribute(Qt.WA_TranslucentBackground, True)
-            self.setMouseTracking(True)
 
-            screen = QApplication.primaryScreen().availableGeometry()
-            self.margin_right = 24
-            
-            # Offset vertical position by node index so multiple DGX orbs stack cleanly
-            node_idx = 1
-            try:
-                if "node-" in str(self.node_id):
-                    node_idx = int(str(self.node_id).split("node-")[1])
-            except Exception:
-                node_idx = 1
-            self.margin_top = 24 + (node_idx - 1) * 96
+class CornerLogoOrb(QWidget):
+    """Floating Animated Logo Orb anchored in the bottom-right corner.
+    Features:
+    - Glowing multi-ring Neon Green atom with rotating orbital electrons.
+    - Smooth breathing pulse effect.
+    - Clicking it summons or toggles the central Dynamic Island Bar!
+    """
+    clicked = pyqtSignal()
 
-            self.right_edge = screen.x() + screen.width() - self.margin_right
-            self.pos_x = self.right_edge - self.cur_w
-            self.pos_y = screen.y() + self.margin_top
-            self.setGeometry(self.pos_x, self.pos_y, self.cur_w, self.cur_h)
+    def __init__(self, node_id="dgx-node-1", node_name="DGX Spark 01", parent=None):
+        super().__init__(parent)
+        self.node_id = node_id
+        self.node_name = node_name
+        self.orb_size = 88
+        self.atom_phase = 0.0
+        self.pulse_phase = 0.0
+        self.is_busy = False
+        self.is_hovered = False
 
-            # Dragging
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setMouseTracking(True)
+        self.resize(self.orb_size, self.orb_size)
+
+        self._position_in_corner()
+
+        # Dragging support
+        self._drag_active = False
+        self._drag_pos = QPoint()
+        self._moved = False
+
+        # 60 FPS Orbit timer
+        self.anim_timer = QTimer(self)
+        self.anim_timer.timeout.connect(self._tick)
+        self.anim_timer.start(25)
+
+    def _position_in_corner(self):
+        screen = QApplication.primaryScreen().availableGeometry()
+        margin_x = 28
+        margin_y = 28
+        pos_x = screen.x() + screen.width() - self.orb_size - margin_x
+        pos_y = screen.y() + screen.height() - self.orb_size - margin_y
+        self.move(pos_x, pos_y)
+
+    def play_entrance_animation(self):
+        """Smoothly glides into the bottom-right corner on PC startup / app launch."""
+        screen = QApplication.primaryScreen().availableGeometry()
+        margin_x = 28
+        margin_y = 28
+        self.final_x = screen.x() + screen.width() - self.orb_size - margin_x
+        self.final_y = screen.y() + screen.height() - self.orb_size - margin_y
+        self.start_y = screen.y() + screen.height() + 80
+        self.move(self.final_x, self.start_y)
+
+        self.entrance_step = 0
+        self.entrance_total = 24
+        self.entrance_timer = QTimer(self)
+        self.entrance_timer.timeout.connect(self._entrance_tick)
+        self.entrance_timer.start(16)
+
+    def _entrance_tick(self):
+        self.entrance_step += 1
+        t = self.entrance_step / float(self.entrance_total)
+        ease = 1.0 - math.pow(1.0 - t, 3)
+        cur_y = int(self.start_y + (self.final_y - self.start_y) * ease)
+        self.move(self.final_x, cur_y)
+        if self.entrance_step >= self.entrance_total:
+            self.entrance_timer.stop()
+
+    def _tick(self):
+        speed = 0.09 if self.is_busy else 0.04
+        self.atom_phase = (self.atom_phase + speed) % (2 * math.pi)
+        self.pulse_phase = (self.pulse_phase + 0.06) % (2 * math.pi)
+        self.update()
+
+    def set_busy(self, busy: bool):
+        self.is_busy = busy
+        self.update()
+
+    def enterEvent(self, event):
+        self.is_hovered = True
+        self.setCursor(QCursor(Qt.PointingHandCursor))
+        self.update()
+
+    def leaveEvent(self, event):
+        self.is_hovered = False
+        self.update()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._drag_active = True
+            self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
+            self._moved = False
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self._drag_active and (event.buttons() & Qt.LeftButton):
+            new_pos = event.globalPos() - self._drag_pos
+            self.move(new_pos)
+            self._moved = True
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
             self._drag_active = False
-            self._user_dragged = False
-            self._drag_pos = QPoint()
+            if not self._moved:
+                self.clicked.emit()
+            event.accept()
 
-            # Expanded UI
-            self._init_expanded_ui()
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
 
-            # Animation timer (60 FPS)
-            self.anim_timer = QTimer(self)
-            self.anim_timer.timeout.connect(self._animation_tick)
-            self.anim_step = 0
-            self.anim_total = 14
+        w = float(self.width())
+        h = float(self.height())
+        cx = w / 2.0
+        cy = h / 2.0
+        r = (self.orb_size - 16) / 2.0
 
-            # Orbit rotation & pulse timer (40 FPS)
-            self.orbit_timer = QTimer(self)
-            self.orbit_timer.timeout.connect(self._orbit_tick)
-            self.orbit_timer.start(25)
+        # 1. Outer Neon Breathing Halo
+        pulse_alpha = int(35 + 25 * math.sin(self.pulse_phase))
+        if self.is_hovered:
+            pulse_alpha = min(90, pulse_alpha + 35)
+        halo_grad = QRadialGradient(cx, cy, r * 1.45)
+        halo_grad.setColorAt(0.0, QColor(0, 255, 136, pulse_alpha))
+        halo_grad.setColorAt(0.7, QColor(5, 242, 146, int(pulse_alpha * 0.4)))
+        halo_grad.setColorAt(1.0, QColor(0, 255, 136, 0))
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(halo_grad))
+        painter.drawEllipse(QRectF(cx - r * 1.35, cy - r * 1.35, r * 2.7, r * 2.7))
 
-            # Queue processor timer (30ms)
-            self.q_timer = QTimer(self)
-            self.q_timer.timeout.connect(self._process_queue)
-            self.q_timer.start(30)
+        # 2. Glassmorphic Sphere Body (Dark Slate with Neon Specular)
+        body_grad = QRadialGradient(cx - r * 0.35, cy - r * 0.35, r * 1.25)
+        body_grad.setColorAt(0.0, QColor(24, 34, 48, 245))
+        body_grad.setColorAt(0.65, QColor(13, 19, 28, 250))
+        body_grad.setColorAt(1.0, QColor(8, 12, 18, 255))
+        painter.setBrush(QBrush(body_grad))
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
 
-        def _init_expanded_ui(self):
-            self.content_widget = QWidget(self)
-            self.content_widget.setGeometry(10, 10, self.full_w - 20, self.full_h - 20)
-            self.content_widget.setVisible(False)
+        # 3. Glowing Specular Rim
+        rim_color = COLOR_NEON_GREEN if (self.is_busy or self.is_hovered) else COLOR_NEON_BORDER
+        painter.setPen(QPen(rim_color, 1.8))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
 
-            layout = QVBoxLayout(self.content_widget)
-            layout.setContentsMargins(12, 12, 12, 12)
-            layout.setSpacing(8)
+        # 4. Triple Rotating Orbits (Electric Neon Green)
+        orbits = [-32.0, 28.0, 88.0]
+        orbit_colors = [
+            QColor(0, 255, 136, 210),
+            QColor(5, 242, 146, 190),
+            QColor(52, 211, 153, 200)
+        ]
+        a = r * 0.70
+        b = r * 0.26
 
-            # Header
-            hdr = QHBoxLayout()
-            is_node_2 = "2" in str(self.node_id)
-            role_badge = "Lead Coder" if "1" in str(self.node_id) else ("Reviewer & QA" if is_node_2 else self.node_name)
-            self.lbl_title = QLabel(f"⚛  AEGIS Spark  •  {self.node_id.upper()} ({role_badge})", self.content_widget)
-            self.lbl_title.setStyleSheet("color: #1e1b4b; font-size: 13px; font-weight: bold;")
-            hdr.addWidget(self.lbl_title)
+        for idx, angle_deg in enumerate(orbits):
+            rad = math.radians(angle_deg)
+            cos_a = math.cos(rad)
+            sin_a = math.sin(rad)
 
-            hdr.addStretch()
+            path = QPainterPath()
+            steps = 40
+            for s in range(steps + 1):
+                t = 2 * math.pi * s / float(steps)
+                x = cx + a * math.cos(t) * cos_a - b * math.sin(t) * sin_a
+                y = cy + a * math.cos(t) * sin_a + b * math.sin(t) * cos_a
+                if s == 0:
+                    path.moveTo(x, y)
+                else:
+                    path.lineTo(x, y)
 
-            self.lbl_status = QLabel("● ONLINE", self.content_widget)
-            status_style = "background: #d1fae5; color: #059669;" if is_node_2 else "background: #ede9fe; color: #7c3aed;"
-            self.lbl_status.setStyleSheet(f"{status_style} font-size: 10px; font-weight: bold; border-radius: 8px; padding: 3px 8px;")
-            hdr.addWidget(self.lbl_status)
-
-            self.btn_collapse = QLabel(" — ", self.content_widget)
-            self.btn_collapse.setStyleSheet("background: #f1f5f9; color: #64748b; font-size: 12px; font-weight: bold; border-radius: 6px; padding: 2px 8px; border: 1px solid #e2e8f0;")
-            self.btn_collapse.setCursor(QCursor(Qt.PointingHandCursor))
-            self.btn_collapse.mousePressEvent = lambda e: self.start_animation(False)
-            hdr.addWidget(self.btn_collapse)
-
-            layout.addLayout(hdr)
-
-            # Telemetry Pill
-            self.lbl_telem = QLabel(self.gpu_text, self.content_widget)
-            self.lbl_telem.setStyleSheet("background: #ffffff; color: #334155; font-family: Consolas, monospace; font-size: 11px; border: 1px solid #ddd6fe; border-radius: 6px; padding: 5px 10px;")
-            layout.addWidget(self.lbl_telem)
-
-            # Task Text
-            self.lbl_task = QLabel(self.task_text, self.content_widget)
-            self.lbl_task.setStyleSheet("color: #64748b; font-size: 11px;")
-            layout.addWidget(self.lbl_task)
-
-            # Log Console
-            self.log_console = QTextEdit(self.content_widget)
-            self.log_console.setReadOnly(True)
-            self.log_console.setLineWrapMode(QTextEdit.WidgetWidth)
-            self.log_console.setStyleSheet("background: #ffffff; color: #0f172a; font-family: Consolas, monospace; font-size: 11px; border: 1px solid #ddd6fe; border-radius: 8px; padding: 6px;")
-            layout.addWidget(self.log_console)
-
-        def paintEvent(self, event):
-            painter = QPainter(self)
-            painter.setRenderHint(QPainter.Antialiasing)
-            painter.setRenderHint(QPainter.SmoothPixmapTransform)
-
-            if not self.is_expanded and not self.is_animating:
-                self._paint_circular_orb(painter)
-            else:
-                self._paint_glass_card(painter)
-
-        def _paint_circular_orb(self, painter):
-            w = self.width()
-            h = self.height()
-            cx = w / 2.0
-            cy = h / 2.0
-            r = (self.mini_size - 12) / 2.0
-
-            # 1. Soft Frosted Clay/Glass Orb Background (Translucent light theme)
-            grad = QRadialGradient(cx - r*0.3, cy - r*0.3, r * 1.3)
-            grad.setColorAt(0.0, QColor(255, 255, 255, 235))
-            grad.setColorAt(0.65, QColor(248, 246, 255, 215))
-            grad.setColorAt(1.0, QColor(237, 233, 254, 195))
-
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(QBrush(grad))
-            painter.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
-
-            # 2. Specular Glass Rim Ring
-            rim_color = QColor(196, 181, 253, 220) if self.current_status == "ONLINE" else QColor(124, 58, 237, 240)
-            painter.setPen(QPen(rim_color, 1.8))
+            painter.setPen(QPen(orbit_colors[idx], 1.3))
             painter.setBrush(Qt.NoBrush)
-            painter.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
+            painter.drawPath(path)
 
-            # 3. Dynamic 3-Orbit Purple Atom
-            orbits = [-30.0, 30.0, 90.0]
-            orbit_colors = [QColor(139, 92, 246, 190), QColor(147, 51, 234, 190), QColor(124, 58, 237, 200)]
-            a = r * 0.68
-            b = r * 0.28
-
-            for idx, angle_deg in enumerate(orbits):
-                rad = math.radians(angle_deg)
-                cos_a = math.cos(rad)
-                sin_a = math.sin(rad)
-
-                path = QPainterPath()
-                steps = 36
-                for s in range(steps + 1):
-                    t = 2 * math.pi * s / float(steps)
-                    x = cx + a * math.cos(t) * cos_a - b * math.sin(t) * sin_a
-                    y = cy + a * math.cos(t) * sin_a + b * math.sin(t) * cos_a
-                    if s == 0:
-                        path.moveTo(x, y)
-                    else:
-                        path.lineTo(x, y)
-
-                painter.setPen(QPen(orbit_colors[idx], 1.4))
-                painter.setBrush(Qt.NoBrush)
-                painter.drawPath(path)
-
-                # Revolving electron dot on each orbit
-                e_t = self.atom_phase + (idx * (2 * math.pi / 3.0))
-                ex = cx + a * math.cos(e_t) * cos_a - b * math.sin(e_t) * sin_a
-                ey = cy + a * math.cos(e_t) * sin_a + b * math.sin(e_t) * cos_a
-
-                painter.setPen(Qt.NoPen)
-                painter.setBrush(QBrush(QColor(192, 132, 252, 255)))
-                painter.drawEllipse(QRectF(ex - 2.8, ey - 2.8, 5.6, 5.6))
-                painter.setBrush(QBrush(QColor(255, 255, 255, 255)))
-                painter.drawEllipse(QRectF(ex - 1.2, ey - 1.2, 2.4, 2.4))
-
-            # 4. Central Glowing Violet Nucleus
-            nuc_grad = QRadialGradient(cx, cy, 7.0)
-            nuc_grad.setColorAt(0.0, QColor(255, 255, 255, 255))
-            nuc_grad.setColorAt(0.4, QColor(167, 139, 250, 240))
-            nuc_grad.setColorAt(0.8, QColor(124, 58, 237, 220))
-            nuc_grad.setColorAt(1.0, QColor(109, 40, 217, 0))
+            # Revolving electron
+            e_t = self.atom_phase + (idx * (2 * math.pi / 3.0))
+            ex = cx + a * math.cos(e_t) * cos_a - b * math.sin(e_t) * sin_a
+            ey = cy + a * math.cos(e_t) * sin_a + b * math.sin(e_t) * cos_a
 
             painter.setPen(Qt.NoPen)
-            painter.setBrush(QBrush(nuc_grad))
-            painter.drawEllipse(QRectF(cx - 7.0, cy - 7.0, 14.0, 14.0))
+            painter.setBrush(QBrush(QColor(0, 255, 136, 255)))
+            painter.drawEllipse(QRectF(ex - 2.8, ey - 2.8, 5.6, 5.6))
+            painter.setBrush(QBrush(QColor(255, 255, 255, 255)))
+            painter.drawEllipse(QRectF(ex - 1.2, ey - 1.2, 2.4, 2.4))
 
-            # 5. Pulsing Status Pip
-            pulse_alpha = int(180 + 75 * math.sin(self.pulse_phase))
-            status_col = QColor(16, 185, 129, pulse_alpha) if self.current_status == "ONLINE" else QColor(124, 58, 237, pulse_alpha)
-            pip_y = cy + r - 3.5
-            painter.setBrush(QBrush(status_col))
-            painter.drawEllipse(QRectF(cx - 3.5, pip_y, 7.0, 7.0))
+        # 5. Glowing Central Nucleus
+        nuc_grad = QRadialGradient(cx, cy, 7.5)
+        nuc_grad.setColorAt(0.0, QColor(255, 255, 255, 255))
+        nuc_grad.setColorAt(0.35, QColor(0, 255, 136, 245))
+        nuc_grad.setColorAt(0.75, QColor(5, 242, 146, 180))
+        nuc_grad.setColorAt(1.0, QColor(0, 255, 136, 0))
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(nuc_grad))
+        painter.drawEllipse(QRectF(cx - 7.5, cy - 7.5, 15.0, 15.0))
 
-        def _paint_glass_card(self, painter):
-            w = float(self.width())
-            h = float(self.height())
-            rect = QRectF(4, 4, w - 8, h - 8)
+        # 6. Bottom Status Pip
+        pip_col = COLOR_ROSE_ALERT if self.is_busy else COLOR_NEON_GREEN
+        pip_y = cy + r - 3.0
+        painter.setBrush(QBrush(pip_col))
+        painter.drawEllipse(QRectF(cx - 3.5, pip_y, 7.0, 7.0))
 
-            # Translucent Frosted Glass Card
-            grad = QLinearGradient(0, 0, 0, h)
-            grad.setColorAt(0.0, QColor(255, 255, 255, 240))
-            grad.setColorAt(1.0, QColor(248, 246, 255, 230))
 
-            border_col = QColor(196, 181, 253, 230) if self.current_status == "ONLINE" else QColor(124, 58, 237, 240)
-            painter.setPen(QPen(border_col, 1.5))
-            painter.setBrush(QBrush(grad))
-            painter.drawRoundedRect(rect, 20.0, 20.0)
+class DynamicIslandWidget(QWidget):
+    """Central Dynamic Island Bar with Rounded Corners & Dynamic Sizing.
+    States:
+    1. PILL_IDLE: 490 x 54 px compact island bar at top-center.
+    2. PILL_BUSY: 620 x 78 px island bar with animated neon loading spinner & progress wave.
+    3. EXPANDED_HUB: 720 x 480 px maximized control hub with Work, Settings, and Telemetry tabs.
+    """
+    minimize_to_corner = pyqtSignal()
+    node_switched = pyqtSignal(str)
+    model_changed = pyqtSignal(str)
 
-        def _orbit_tick(self):
-            speed = 0.08 if self.current_status in ["BUSY", "COMPUTING"] else 0.04
-            self.atom_phase = (self.atom_phase + speed) % (2 * math.pi)
-            self.pulse_phase = (self.pulse_phase + 0.07) % (2 * math.pi)
+    STATE_PILL_IDLE = 0
+    STATE_PILL_BUSY = 1
+    STATE_EXPANDED = 2
+
+    def __init__(self, node_id="dgx-node-1", node_name="DGX Spark 01", shared_queue=None, parent=None):
+        super().__init__(parent)
+        self.node_id = node_id
+        self.node_name = node_name
+        self.log_queue = shared_queue or queue.Queue()
+
+        self.state = self.STATE_PILL_IDLE
+        self.current_status = "ONLINE"
+        self.active_model = "qwen2.5-coder:32b"
+        self.context_tokens = "65,536"
+        self.task_text = "Idle • Waiting for assignments"
+        self.gpu_text = "GPU 0% • VRAM 0.0/128G • 35°C"
+        self.is_busy = False
+
+        # Dimensions
+        self.dim_pill_idle = (510, 56)
+        self.dim_pill_busy = (640, 80)
+        self.dim_expanded = (720, 500)
+
+        self.cur_w, self.cur_h = self.dim_pill_idle
+        self.start_w, self.start_h = self.cur_w, self.cur_h
+        self.target_w, self.target_h = self.cur_w, self.cur_h
+
+        # Window Flags & Attributes
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setMouseTracking(True)
+
+        # Animation states
+        self.is_animating = False
+        self.anim_step = 0
+        self.anim_total = 14
+        self.anim_timer = QTimer(self)
+        self.anim_timer.timeout.connect(self._animation_tick)
+
+        # Loading spinner & wave phases
+        self.spinner_phase = 0.0
+        self.wave_phase = 0.0
+        self.pulse_timer = QTimer(self)
+        self.pulse_timer.timeout.connect(self._pulse_tick)
+        self.pulse_timer.start(25)
+
+        # Queue timer
+        self.q_timer = QTimer(self)
+        self.q_timer.timeout.connect(self._process_queue)
+        self.q_timer.start(30)
+
+        # Build UI Structure
+        self._init_ui()
+        self._reposition_center()
+
+    def _reposition_center(self):
+        screen = QApplication.primaryScreen().availableGeometry()
+        pos_x = screen.x() + int((screen.width() - self.cur_w) / 2)
+        pos_y = screen.y() + 20
+        self.setGeometry(pos_x, pos_y, self.cur_w, self.cur_h)
+
+    def play_entrance_animation(self):
+        """Smoothly glides down from above the screen on PC startup / app launch."""
+        screen = QApplication.primaryScreen().availableGeometry()
+        self.final_x = screen.x() + int((screen.width() - self.cur_w) / 2)
+        self.final_y = screen.y() + 20
+        self.start_y = screen.y() - self.cur_h - 40
+        self.setGeometry(self.final_x, self.start_y, self.cur_w, self.cur_h)
+
+        self.entrance_step = 0
+        self.entrance_total = 22
+        self.entrance_timer = QTimer(self)
+        self.entrance_timer.timeout.connect(self._entrance_tick)
+        self.entrance_timer.start(16)
+
+    def _entrance_tick(self):
+        self.entrance_step += 1
+        t = self.entrance_step / float(self.entrance_total)
+        ease = 1.0 - math.pow(1.0 - t, 3)
+        cur_y = int(self.start_y + (self.final_y - self.start_y) * ease)
+        self.setGeometry(self.final_x, cur_y, self.cur_w, self.cur_h)
+        if self.entrance_step >= self.entrance_total:
+            self.entrance_timer.stop()
+
+    def _init_ui(self):
+        # Master Layout
+        self.master_layout = QVBoxLayout(self)
+        self.master_layout.setContentsMargins(14, 10, 14, 10)
+        self.master_layout.setSpacing(0)
+
+        # 1. PILL HEADER BAR (Always visible, serves as the compact Island Bar)
+        self.pill_bar = QWidget(self)
+        self.pill_bar.setFixedHeight(36)
+        pill_layout = QHBoxLayout(self.pill_bar)
+        pill_layout.setContentsMargins(8, 0, 8, 0)
+        pill_layout.setSpacing(10)
+
+        # Neon Green Spark Icon + Title
+        self.lbl_logo_pill = QLabel("⚛", self.pill_bar)
+        self.lbl_logo_pill.setStyleSheet("color: #00ff88; font-size: 16px; font-weight: bold;")
+        pill_layout.addWidget(self.lbl_logo_pill)
+
+        self.lbl_brand = QLabel(f"AEGIS SPARK", self.pill_bar)
+        self.lbl_brand.setStyleSheet("color: #ffffff; font-size: 11px; font-weight: 800; letter-spacing: 1px;")
+        pill_layout.addWidget(self.lbl_brand)
+
+        # Node Badge Pill
+        self.lbl_node_badge = QLabel(self.node_id.upper(), self.pill_bar)
+        self.lbl_node_badge.setStyleSheet(
+            "background: rgba(0, 255, 136, 0.15); color: #00ff88; font-size: 10px; font-weight: bold; "
+            "border: 1px solid rgba(0, 255, 136, 0.4); border-radius: 8px; padding: 2px 7px;"
+        )
+        pill_layout.addWidget(self.lbl_node_badge)
+
+        # Model Tag Pill
+        self.lbl_model_pill = QLabel(f"⚡ {self.active_model}", self.pill_bar)
+        self.lbl_model_pill.setStyleSheet(
+            "background: rgba(255, 255, 255, 0.08); color: #94a3b8; font-size: 10px; font-weight: 600; "
+            "border-radius: 8px; padding: 2px 7px;"
+        )
+        pill_layout.addWidget(self.lbl_model_pill)
+
+        pill_layout.addStretch()
+
+        # Telemetry Pill (GPU & VRAM)
+        self.lbl_telem_pill = QLabel(self.gpu_text, self.pill_bar)
+        self.lbl_telem_pill.setStyleSheet("color: #38bdf8; font-family: Consolas, monospace; font-size: 10px;")
+        pill_layout.addWidget(self.lbl_telem_pill)
+
+        # Status Pill
+        self.lbl_status_pill = QLabel("● ONLINE", self.pill_bar)
+        self.lbl_status_pill.setStyleSheet(
+            "background: rgba(0, 255, 136, 0.2); color: #00ff88; font-size: 10px; font-weight: bold; "
+            "border-radius: 8px; padding: 2px 8px;"
+        )
+        pill_layout.addWidget(self.lbl_status_pill)
+
+        # Expand / Toggle Button
+        self.btn_expand_toggle = QPushButton("▾", self.pill_bar)
+        self.btn_expand_toggle.setFixedSize(24, 24)
+        self.btn_expand_toggle.setCursor(QCursor(Qt.PointingHandCursor))
+        self.btn_expand_toggle.setStyleSheet(
+            "QPushButton { background: rgba(255, 255, 255, 0.1); color: #00ff88; border: none; border-radius: 12px; font-weight: bold; font-size: 12px; } "
+            "QPushButton:hover { background: rgba(0, 255, 136, 0.25); color: #ffffff; }"
+        )
+        self.btn_expand_toggle.clicked.connect(self._toggle_expanded)
+        pill_layout.addWidget(self.btn_expand_toggle)
+
+        self.master_layout.addWidget(self.pill_bar)
+
+        # 2. LOADING & TASK ROW (Visible when busy in pill mode)
+        self.loading_panel = QWidget(self)
+        self.loading_panel.setFixedHeight(24)
+        self.loading_panel.setVisible(False)
+        load_layout = QHBoxLayout(self.loading_panel)
+        load_layout.setContentsMargins(12, 0, 12, 0)
+        load_layout.setSpacing(8)
+
+        self.lbl_spinner = QLabel("◌", self.loading_panel)
+        self.lbl_spinner.setStyleSheet("color: #00ff88; font-size: 14px; font-weight: bold;")
+        load_layout.addWidget(self.lbl_spinner)
+
+        self.lbl_busy_task = QLabel("Executing Task...", self.loading_panel)
+        self.lbl_busy_task.setStyleSheet("color: #e2e8f0; font-size: 10px; font-style: italic;")
+        load_layout.addWidget(self.lbl_busy_task)
+
+        load_layout.addStretch()
+
+        self.lbl_ctx_badge = QLabel("65K CTX", self.loading_panel)
+        self.lbl_ctx_badge.setStyleSheet(
+            "background: rgba(16, 185, 129, 0.2); color: #34d399; font-size: 9px; font-weight: bold; "
+            "border-radius: 6px; padding: 1px 6px;"
+        )
+        load_layout.addWidget(self.lbl_ctx_badge)
+
+        self.master_layout.addWidget(self.loading_panel)
+
+        # 3. EXPANDED CONTROL HUB CONTAINER
+        self.hub_container = QWidget(self)
+        self.hub_container.setVisible(False)
+        hub_layout = QVBoxLayout(self.hub_container)
+        hub_layout.setContentsMargins(4, 10, 4, 4)
+        hub_layout.setSpacing(10)
+
+        # Hub Header Action Row
+        hub_header = QHBoxLayout()
+        hub_header.setSpacing(8)
+
+        lbl_hub_title = QLabel("⚛  AEGIS MULTI-DGX AUTONOMOUS CONTROL HUB", self.hub_container)
+        lbl_hub_title.setStyleSheet("color: #00ff88; font-size: 11px; font-weight: bold; letter-spacing: 1px;")
+        hub_header.addWidget(lbl_hub_title)
+
+        hub_header.addStretch()
+
+        # Minimize to Corner button
+        btn_to_corner = QPushButton("⤓ Corner Orb", self.hub_container)
+        btn_to_corner.setCursor(QCursor(Qt.PointingHandCursor))
+        btn_to_corner.setStyleSheet(
+            "QPushButton { background: rgba(255, 255, 255, 0.08); color: #94a3b8; border: 1px solid rgba(255, 255, 255, 0.15); "
+            "border-radius: 6px; padding: 3px 8px; font-size: 10px; } "
+            "QPushButton:hover { background: rgba(0, 255, 136, 0.2); color: #00ff88; border-color: #00ff88; }"
+        )
+        btn_to_corner.clicked.connect(self.minimize_to_corner.emit)
+        hub_header.addWidget(btn_to_corner)
+
+        # Minimize to Pill button
+        btn_to_pill = QPushButton("— Collapse", self.hub_container)
+        btn_to_pill.setCursor(QCursor(Qt.PointingHandCursor))
+        btn_to_pill.setStyleSheet(
+            "QPushButton { background: rgba(255, 255, 255, 0.08); color: #94a3b8; border: 1px solid rgba(255, 255, 255, 0.15); "
+            "border-radius: 6px; padding: 3px 8px; font-size: 10px; } "
+            "QPushButton:hover { background: rgba(255, 255, 255, 0.2); color: #ffffff; }"
+        )
+        btn_to_pill.clicked.connect(lambda: self.transition_to(self.STATE_PILL_BUSY if self.is_busy else self.STATE_PILL_IDLE))
+        hub_header.addWidget(btn_to_pill)
+
+        hub_layout.addLayout(hub_header)
+
+        # Multi-Tab Widget
+        self.tab_widget = QTabWidget(self.hub_container)
+        self.tab_widget.setStyleSheet(
+            "QTabWidget::pane { border: 1px solid rgba(0, 255, 136, 0.25); border-radius: 12px; background: rgba(14, 20, 29, 0.95); } "
+            "QTabBar::tab { background: rgba(20, 28, 40, 0.8); color: #94a3b8; padding: 7px 18px; border-top-left-radius: 8px; "
+            "border-top-right-radius: 8px; font-size: 11px; font-weight: bold; margin-right: 4px; } "
+            "QTabBar::tab:selected { background: rgba(0, 255, 136, 0.18); color: #00ff88; border: 1px solid rgba(0, 255, 136, 0.4); border-bottom: none; } "
+            "QTabBar::tab:hover { color: #ffffff; }"
+        )
+
+        # TAB 1: WORK & CONSOLE
+        self.tab_work = QWidget()
+        self._init_tab_work()
+        self.tab_widget.addTab(self.tab_work, "⚡ Work & Live Stream")
+
+        # TAB 2: SETTINGS & FEATURES
+        self.tab_settings = QWidget()
+        self._init_tab_settings()
+        self.tab_widget.addTab(self.tab_settings, "⚙ Settings & Features")
+
+        # TAB 3: TELEMETRY & GPU
+        self.tab_telemetry = QWidget()
+        self._init_tab_telemetry()
+        self.tab_widget.addTab(self.tab_telemetry, "📊 GPU & Telemetry")
+
+        hub_layout.addWidget(self.tab_widget)
+        self.master_layout.addWidget(self.hub_container)
+
+    def _init_tab_work(self):
+        layout = QVBoxLayout(self.tab_work)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+
+        # Active Task Banner
+        self.banner_task = QFrame(self.tab_work)
+        self.banner_task.setStyleSheet("background: rgba(20, 30, 44, 0.8); border: 1px solid rgba(0, 255, 136, 0.2); border-radius: 8px;")
+        b_layout = QHBoxLayout(self.banner_task)
+        b_layout.setContentsMargins(10, 6, 10, 6)
+
+        self.lbl_task_icon = QLabel("⚡", self.banner_task)
+        self.lbl_task_icon.setStyleSheet("color: #00ff88; font-size: 14px;")
+        b_layout.addWidget(self.lbl_task_icon)
+
+        self.lbl_task_title = QLabel(self.task_text, self.banner_task)
+        self.lbl_task_title.setStyleSheet("color: #f1f5f9; font-size: 11px; font-weight: 600;")
+        self.lbl_task_title.setWordWrap(True)
+        b_layout.addWidget(self.lbl_task_title, stretch=1)
+
+        layout.addWidget(self.banner_task)
+
+        # Terminal Console Output
+        self.console_output = QTextEdit(self.tab_work)
+        self.console_output.setReadOnly(True)
+        self.console_output.setLineWrapMode(QTextEdit.WidgetWidth)
+        self.console_output.setStyleSheet(
+            "QTextEdit { background: #070a0f; color: #a7f3d0; font-family: Consolas, 'JetBrains Mono', monospace; "
+            "font-size: 11px; border: 1px solid rgba(0, 255, 136, 0.25); border-radius: 8px; padding: 8px; } "
+            "QScrollBar:vertical { background: #0b1017; width: 8px; } "
+            "QScrollBar::handle:vertical { background: #1e293b; border-radius: 4px; } "
+            "QScrollBar::handle:vertical:hover { background: #00ff88; }"
+        )
+        self.console_output.append("[AEGIS SPARK NEON SYSTEM ONLINE]\nReady for distributed code generation & review handoffs.\n")
+        layout.addWidget(self.console_output, stretch=1)
+
+        # Console Action Bar
+        console_btns = QHBoxLayout()
+        btn_clear = QPushButton("Clear Console", self.tab_work)
+        btn_clear.setStyleSheet("background: #1e293b; color: #94a3b8; border-radius: 6px; padding: 4px 10px; font-size: 10px;")
+        btn_clear.clicked.connect(self.console_output.clear)
+        console_btns.addWidget(btn_clear)
+
+        console_btns.addStretch()
+
+        self.lbl_word_count = QLabel("Status: Ready", self.tab_work)
+        self.lbl_word_count.setStyleSheet("color: #64748b; font-size: 10px;")
+        console_btns.addWidget(self.lbl_word_count)
+
+        layout.addLayout(console_btns)
+
+    def _init_tab_settings(self):
+        layout = QVBoxLayout(self.tab_settings)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(12)
+
+        # Row 1: Node Switcher
+        r1 = QHBoxLayout()
+        lbl_node = QLabel("Target DGX Node:", self.tab_settings)
+        lbl_node.setStyleSheet("color: #e2e8f0; font-size: 11px; font-weight: bold;")
+        self.cb_node = QComboBox(self.tab_settings)
+        self.cb_node.addItems(["dgx-node-1 (Lead Coder - Spark 01)", "dgx-node-2 (Reviewer & QA - Spark 02)"])
+        self.cb_node.setStyleSheet(
+            "QComboBox { background: #111927; color: #00ff88; border: 1px solid rgba(0, 255, 136, 0.35); "
+            "border-radius: 6px; padding: 4px 10px; font-size: 11px; min-width: 260px; } "
+            "QComboBox QAbstractItemView { background: #0a0e17; color: #f8fafc; selection-background-color: #00ff88; selection-color: #000000; }"
+        )
+        self.cb_node.currentIndexChanged.connect(self._on_node_changed)
+        r1.addWidget(lbl_node)
+        r1.addWidget(self.cb_node)
+        r1.addStretch()
+        layout.addLayout(r1)
+
+        # Row 2: Model Selector
+        r2 = QHBoxLayout()
+        lbl_model = QLabel("Local GPU Model:", self.tab_settings)
+        lbl_model.setStyleSheet("color: #e2e8f0; font-size: 11px; font-weight: bold;")
+        self.cb_model = QComboBox(self.tab_settings)
+        self.cb_model.addItems([
+            "qwen2.5-coder:32b (Default 128K Context Leader)",
+            "llama3.3:70b (70B Reasoning & Planning)",
+            "deepseek-coder-v2:16b (16B Lightweight Coder)",
+            "mixtral:8x22b-instruct (141B MoE)"
+        ])
+        self.cb_model.setStyleSheet(
+            "QComboBox { background: #111927; color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); "
+            "border-radius: 6px; padding: 4px 10px; font-size: 11px; min-width: 260px; } "
+            "QComboBox QAbstractItemView { background: #0a0e17; color: #f8fafc; selection-background-color: #38bdf8; selection-color: #000000; }"
+        )
+        self.cb_model.currentIndexChanged.connect(self._on_model_changed)
+        r2.addWidget(lbl_model)
+        r2.addWidget(self.cb_model)
+        r2.addStretch()
+        layout.addLayout(r2)
+
+        # Row 3: Context Window Tokens
+        r3 = QHBoxLayout()
+        lbl_ctx = QLabel("Context Window Limit:", self.tab_settings)
+        lbl_ctx.setStyleSheet("color: #e2e8f0; font-size: 11px; font-weight: bold;")
+        self.cb_ctx = QComboBox(self.tab_settings)
+        self.cb_ctx.addItems(["65,536 tokens (Standard)", "32,768 tokens (Fast)", "131,072 tokens (Full 128K)"])
+        self.cb_ctx.setStyleSheet(
+            "QComboBox { background: #111927; color: #a7f3d0; border: 1px solid rgba(167, 243, 208, 0.35); "
+            "border-radius: 6px; padding: 4px 10px; font-size: 11px; min-width: 260px; }"
+        )
+        r3.addWidget(lbl_ctx)
+        r3.addWidget(self.cb_ctx)
+        r3.addStretch()
+        layout.addLayout(r3)
+
+        # Row 4: Toggles
+        r4 = QHBoxLayout()
+        self.chk_automin = QCheckBox("Auto-minimize to Island after idle (4s)", self.tab_settings)
+        self.chk_automin.setChecked(True)
+        self.chk_automin.setStyleSheet("QCheckBox { color: #cbd5e1; font-size: 11px; } QCheckBox::indicator:checked { background: #00ff88; }")
+        r4.addWidget(self.chk_automin)
+
+        self.chk_sound = QCheckBox("Voice Feedback & Audio", self.tab_settings)
+        self.chk_sound.setChecked(True)
+        self.chk_sound.setStyleSheet("QCheckBox { color: #cbd5e1; font-size: 11px; } QCheckBox::indicator:checked { background: #00ff88; }")
+        r4.addWidget(self.chk_sound)
+        r4.addStretch()
+        layout.addLayout(r4)
+
+        layout.addStretch()
+
+    def _init_tab_telemetry(self):
+        layout = QVBoxLayout(self.tab_telemetry)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(14)
+
+        # VRAM Gauge
+        lbl_vram_title = QLabel("NVIDIA Blackwell VRAM Usage (128 GB Unified):", self.tab_telemetry)
+        lbl_vram_title.setStyleSheet("color: #e2e8f0; font-size: 11px; font-weight: bold;")
+        layout.addWidget(lbl_vram_title)
+
+        self.vram_bar = QFrame(self.tab_telemetry)
+        self.vram_bar.setFixedHeight(22)
+        self.vram_bar.setStyleSheet("background: #0f172a; border: 1px solid rgba(0, 255, 136, 0.3); border-radius: 11px;")
+        layout.addWidget(self.vram_bar)
+
+        self.lbl_vram_num = QLabel("Allocated: 19.5 GB / 128.0 GB (15%)", self.tab_telemetry)
+        self.lbl_vram_num.setStyleSheet("color: #00ff88; font-size: 11px; font-family: Consolas;")
+        layout.addWidget(self.lbl_vram_num)
+
+        # GPU Compute Load & Temperature
+        telem_grid = QHBoxLayout()
+        self.box_gpu = QFrame(self.tab_telemetry)
+        self.box_gpu.setStyleSheet("background: #111827; border: 1px solid #1f2937; border-radius: 8px; padding: 10px;")
+        bg_l = QVBoxLayout(self.box_gpu)
+        lbl_g_t = QLabel("Compute Utilization", self.box_gpu)
+        lbl_g_t.setStyleSheet("color: #94a3b8; font-size: 10px;")
+        self.lbl_gpu_val = QLabel("14%", self.box_gpu)
+        self.lbl_gpu_val.setStyleSheet("color: #38bdf8; font-size: 20px; font-weight: bold;")
+        bg_l.addWidget(lbl_g_t)
+        bg_l.addWidget(self.lbl_gpu_val)
+        telem_grid.addWidget(self.box_gpu)
+
+        self.box_temp = QFrame(self.tab_telemetry)
+        self.box_temp.setStyleSheet("background: #111827; border: 1px solid #1f2937; border-radius: 8px; padding: 10px;")
+        bt_l = QVBoxLayout(self.box_temp)
+        lbl_t_t = QLabel("GPU Temperature", self.box_temp)
+        lbl_t_t.setStyleSheet("color: #94a3b8; font-size: 10px;")
+        self.lbl_temp_val = QLabel("42°C", self.box_temp)
+        self.lbl_temp_val.setStyleSheet("color: #34d399; font-size: 20px; font-weight: bold;")
+        bt_l.addWidget(lbl_t_t)
+        bt_l.addWidget(self.lbl_temp_val)
+        telem_grid.addWidget(self.box_temp)
+
+        layout.addLayout(telem_grid)
+        layout.addStretch()
+
+    def _toggle_expanded(self):
+        if self.state == self.STATE_EXPANDED:
+            self.transition_to(self.STATE_PILL_BUSY if self.is_busy else self.STATE_PILL_IDLE)
+        else:
+            self.transition_to(self.STATE_EXPANDED)
+
+    def transition_to(self, new_state: int):
+        if self.is_animating or self.state == new_state:
+            return
+
+        self.is_animating = True
+        self.target_state = new_state
+        self.anim_step = 0
+
+        self.start_w, self.start_h = self.cur_w, self.cur_h
+
+        if new_state == self.STATE_PILL_IDLE:
+            self.target_w, self.target_h = self.dim_pill_idle
+            self.hub_container.setVisible(False)
+            self.loading_panel.setVisible(False)
+            self.btn_expand_toggle.setText("▾")
+        elif new_state == self.STATE_PILL_BUSY:
+            self.target_w, self.target_h = self.dim_pill_busy
+            self.hub_container.setVisible(False)
+            self.loading_panel.setVisible(True)
+            self.btn_expand_toggle.setText("▾")
+        elif new_state == self.STATE_EXPANDED:
+            self.target_w, self.target_h = self.dim_expanded
+            self.loading_panel.setVisible(False)
+            self.btn_expand_toggle.setText("▴")
+
+        self.anim_timer.start(16)
+
+    def _animation_tick(self):
+        self.anim_step += 1
+        t = self.anim_step / float(self.anim_total)
+        # Ease-out cubic
+        ease = 1.0 - math.pow(1.0 - t, 3)
+
+        self.cur_w = int(self.start_w + (self.target_w - self.start_w) * ease)
+        self.cur_h = int(self.start_h + (self.target_h - self.start_h) * ease)
+
+        self._reposition_center()
+
+        if self.anim_step >= self.anim_total:
+            self.anim_timer.stop()
+            self.is_animating = False
+            self.state = self.target_state
+            if self.state == self.STATE_EXPANDED:
+                self.hub_container.setVisible(True)
+            elif self.state == self.STATE_PILL_BUSY:
+                self.loading_panel.setVisible(True)
             self.update()
 
-        def start_animation(self, target_expanded: bool):
-            if self.is_animating or self.is_expanded == target_expanded:
-                return
-            self.is_animating = True
-            self.target_expanded = target_expanded
-            self.anim_step = 0
+    def _pulse_tick(self):
+        # Spinner rotation & wave phase
+        self.spinner_phase = (self.spinner_phase + 0.12) % (2 * math.pi)
+        self.wave_phase = (self.wave_phase + 0.08) % (2 * math.pi)
 
-            if target_expanded:
-                self.content_widget.setVisible(False)
-                self.start_w, self.start_h = self.mini_size, self.mini_size
-                self.end_w, self.end_h = self.full_w, self.full_h
-            else:
-                self.content_widget.setVisible(False)
-                self.start_w, self.start_h = self.full_w, self.full_h
-                self.end_w, self.end_h = self.mini_size, self.mini_size
+        # Update spinner character
+        spin_chars = ["◐", "◓", "◑", "◒"]
+        idx = int((self.spinner_phase / (2 * math.pi)) * len(spin_chars)) % len(spin_chars)
+        self.lbl_spinner.setText(spin_chars[idx])
 
-            self.anim_timer.start(16)
+        if self.state in [self.STATE_PILL_BUSY, self.STATE_PILL_IDLE]:
+            self.update()
 
-        def _animation_tick(self):
-            self.anim_step += 1
-            t = self.anim_step / float(self.anim_total)
-            ease = 1.0 - math.pow(1.0 - t, 3)
+    def _process_queue(self):
+        while not self.log_queue.empty():
+            kind, data = self.log_queue.get_nowait()
+            if kind == "log":
+                text, tag = data if isinstance(data, tuple) else (str(data), "")
+                self.console_output.append(text)
+                if self.state != self.STATE_EXPANDED and self.is_busy:
+                    self.lbl_busy_task.setText(text.strip().splitlines()[-1][:60])
+            elif kind == "status":
+                status, title = data
+                self.current_status = status
+                self.is_busy = status in ["BUSY", "COMPUTING"]
+                self.lbl_status_pill.setText(f"● {status}")
 
-            self.cur_w = int(self.start_w + (self.end_w - self.start_w) * ease)
-            self.cur_h = int(self.start_h + (self.end_h - self.start_h) * ease)
-
-            screen = QApplication.primaryScreen().availableGeometry()
-            if not self._user_dragged:
-                self.right_edge = screen.x() + screen.width() - self.margin_right
-            pos_x = self.right_edge - self.cur_w
-            self.setGeometry(pos_x, self.y(), self.cur_w, self.cur_h)
-
-            if self.anim_step >= self.anim_total:
-                self.anim_timer.stop()
-                self.is_animating = False
-                self.is_expanded = self.target_expanded
-                if self.is_expanded:
-                    self.content_widget.setGeometry(10, 10, self.cur_w - 20, self.cur_h - 20)
-                    self.content_widget.setVisible(True)
-                self.update()
-
-        def mousePressEvent(self, event):
-            if event.button() == Qt.LeftButton:
-                self._drag_active = True
-                self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
-                event.accept()
-
-        def mouseMoveEvent(self, event):
-            if self._drag_active and (event.buttons() & Qt.LeftButton):
-                new_pos = event.globalPos() - self._drag_pos
-                self.move(new_pos)
-                self.right_edge = new_pos.x() + self.cur_w
-                self._user_dragged = True
-                event.accept()
-
-        def mouseReleaseEvent(self, event):
-            if self._drag_active and event.button() == Qt.LeftButton:
-                self._drag_active = False
-                if not self.is_expanded and not self.is_animating:
-                    self.start_animation(True)
-                event.accept()
-
-        def _process_queue(self):
-            while not self.log_queue.empty():
-                kind, data = self.log_queue.get_nowait()
-                if kind == "expand":
-                    self.start_animation(data)
-                elif kind == "toggle":
-                    self.start_animation(not self.is_expanded)
-                elif kind == "log":
-                    text, tag = data if isinstance(data, tuple) else (str(data), "")
-                    self.log_console.append(text)
-                    if not self.is_expanded and not self.is_animating:
-                        self.start_animation(True)
-                elif kind == "status":
-                    status, title = data
-                    self.current_status = status
-                    self.lbl_status.setText(f"● {status}")
-                    if status in ["BUSY", "COMPUTING"]:
-                        self.lbl_status.setStyleSheet("background: #fdf2f8; color: #db2777; font-size: 10px; font-weight: bold; border-radius: 8px; padding: 3px 8px;")
-                        if not self.is_expanded and not self.is_animating:
-                            self.start_animation(True)
-                    else:
-                        self.lbl_status.setStyleSheet("background: #ede9fe; color: #7c3aed; font-size: 10px; font-weight: bold; border-radius: 8px; padding: 3px 8px;")
-                        QTimer.singleShot(4000, self._auto_collapse_if_idle)
+                if self.is_busy:
+                    self.lbl_status_pill.setStyleSheet(
+                        "background: rgba(244, 63, 94, 0.25); color: #f43f5e; font-size: 10px; font-weight: bold; border-radius: 8px; padding: 2px 8px;"
+                    )
                     if title:
                         self.task_text = title
-                        self.lbl_task.setText(title)
-                elif kind == "telemetry":
-                    self.gpu_text = data
-                    self.lbl_telem.setText(data)
+                        self.lbl_task_title.setText(title)
+                        self.lbl_busy_task.setText(title[:55])
+                    if self.state == self.STATE_PILL_IDLE:
+                        self.transition_to(self.STATE_PILL_BUSY)
+                else:
+                    self.lbl_status_pill.setStyleSheet(
+                        "background: rgba(0, 255, 136, 0.2); color: #00ff88; font-size: 10px; font-weight: bold; border-radius: 8px; padding: 2px 8px;"
+                    )
+                    if self.state == self.STATE_PILL_BUSY:
+                        if self.chk_automin.isChecked():
+                            QTimer.singleShot(4000, self._auto_collapse)
+            elif kind == "expand":
+                if data:
+                    self.transition_to(self.STATE_EXPANDED)
+                else:
+                    self.transition_to(self.STATE_PILL_BUSY if self.is_busy else self.STATE_PILL_IDLE)
+            elif kind == "toggle":
+                self._toggle_expanded()
+            elif kind == "telemetry":
+                self.gpu_text = data
+                self.lbl_telem_pill.setText(data)
+                # Parse metrics for telemetry tab
+                try:
+                    if "GPU:" in data:
+                        gpu_pct = data.split("GPU:")[1].split("%")[0].strip()
+                        self.lbl_gpu_val.setText(f"{gpu_pct}%")
+                    if "Temp:" in data or "°C" in data:
+                        t_str = data.split("°C")[0].split("|")[-1].strip()
+                        self.lbl_temp_val.setText(f"{t_str}°C")
+                except Exception:
+                    pass
 
-        def _auto_collapse_if_idle(self):
-            if self.current_status in ["ONLINE", "READY"] and self.is_expanded and not self.is_animating:
-                self.start_animation(False)
+    def _auto_collapse(self):
+        if not self.is_busy and self.state == self.STATE_PILL_BUSY:
+            self.transition_to(self.STATE_PILL_IDLE)
 
-    class PyQtOverlayHUD:
-        """Controller wrapper for PyQtHUDWidget."""
-        def __init__(self, node_id: str = "dgx-node-1", node_name: str = "DGX Spark 01"):
-            self.node_id = node_id
-            self.node_name = node_name
-            self.widget = None
-            self.log_queue = queue.Queue()
+    def _on_node_changed(self, idx):
+        node = "dgx-node-1" if idx == 0 else "dgx-node-2"
+        self.node_id = node
+        self.lbl_node_badge.setText(node.upper())
+        self.node_switched.emit(node)
 
-        def start_hud_thread(self):
-            # Handled via run_main_loop on main thread
-            pass
+    def _on_model_changed(self, idx):
+        models = ["qwen2.5-coder:32b", "llama3.3:70b", "deepseek-coder-v2:16b", "mixtral:8x22b-instruct"]
+        chosen = models[idx] if idx < len(models) else "qwen2.5-coder:32b"
+        self.active_model = chosen
+        self.lbl_model_pill.setText(f"⚡ {chosen}")
+        self.model_changed.emit(chosen)
 
-        def run_main_loop(self, worker_func):
-            """Executes QApplication on the main thread (required by Qt/X11)."""
-            try:
-                app = QApplication.instance()
-                if not app:
-                    app = QApplication([sys.argv[0]])
-                self.widget = PyQtHUDWidget(node_id=self.node_id, node_name=self.node_name, shared_queue=self.log_queue)
-                self.widget.show()
+    def mousePressEvent(self, event):
+        # Click on pill bar toggles expansion
+        if event.button() == Qt.LeftButton:
+            if self.state in [self.STATE_PILL_IDLE, self.STATE_PILL_BUSY]:
+                self.transition_to(self.STATE_EXPANDED)
+                event.accept()
+                return
+        super().mousePressEvent(event)
 
-                t = threading.Thread(target=worker_func, daemon=True)
-                t.start()
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
 
-                sys.exit(app.exec_())
-            except Exception as e:
-                print(f"[!] PyQt HUD exception: {e}")
-                # Fallback to worker loop if GUI fails
-                worker_func()
+        w = float(self.width())
+        h = float(self.height())
+        rect = QRectF(2, 2, w - 4, h - 4)
 
-        def append_log(self, text: str, tag: str = ""):
-            self.log_queue.put(("log", (text, tag)))
+        # Dynamic corner radius: rounder in pill mode (27px), sleek rounded in hub (22px)
+        radius = 27.0 if self.state in [self.STATE_PILL_IDLE, self.STATE_PILL_BUSY] else 22.0
 
-        def update_status(self, status: str, task_title: str = ""):
-            self.log_queue.put(("status", (status, task_title)))
+        # 1. Dark Glassmorphic Backdrop
+        bg_grad = QLinearGradient(0, 0, 0, h)
+        bg_grad.setColorAt(0.0, QColor(12, 17, 25, 245))
+        bg_grad.setColorAt(1.0, QColor(7, 10, 16, 252))
+        painter.setBrush(QBrush(bg_grad))
 
-        def update_telemetry(self, gpu_text: str):
-            self.log_queue.put(("telemetry", gpu_text))
+        # 2. Specular Neon Green Border
+        border_col = COLOR_NEON_GREEN if self.is_busy else COLOR_NEON_BORDER
+        painter.setPen(QPen(border_col, 1.6))
+        painter.drawRoundedRect(rect, radius, radius)
 
-        def show_warning(self, msg: str):
-            self.log_queue.put(("warning", msg))
+        # 3. Animated Neon Scanner Wave (When busy)
+        if self.is_busy:
+            scan_path = QPainterPath()
+            scan_path.addRoundedRect(rect, radius, radius)
+            painter.save()
+            painter.setClipPath(scan_path)
 
-        def set_locked(self, locked: bool, reason: str = ""):
-            self.log_queue.put(("locked", (locked, reason)))
+            wave_x = (math.sin(self.wave_phase) * 0.5 + 0.5) * w
+            wave_grad = QLinearGradient(wave_x - 120, 0, wave_x + 120, 0)
+            wave_grad.setColorAt(0.0, QColor(0, 255, 136, 0))
+            wave_grad.setColorAt(0.5, QColor(0, 255, 136, 120))
+            wave_grad.setColorAt(1.0, QColor(0, 255, 136, 0))
 
-        def set_expanded(self, expand: bool):
-            self.log_queue.put(("expand", expand))
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(wave_grad))
+            painter.drawRect(QRectF(wave_x - 120, h - 3, 240, 3))
+            painter.restore()
 
-        def toggle_expand(self):
-            self.log_queue.put(("toggle", None))
+
+class AegisMasterHUD(QObject):
+    """Unified Orchestrator coordinating the Corner Logo Orb and Central Dynamic Island."""
+    def __init__(self, node_id="dgx-node-1", node_name="DGX Spark 01"):
+        super().__init__()
+        self.node_id = node_id
+        self.node_name = node_name
+        self.log_queue = queue.Queue()
+
+        self.corner_orb: Optional[CornerLogoOrb] = None
+        self.dynamic_island: Optional[DynamicIslandWidget] = None
+
+    def run_main_loop(self, worker_func):
+        """Initializes Qt widgets and starts worker polling loop."""
+        try:
+            app = QApplication.instance()
+            if not app:
+                app = QApplication([sys.argv[0]])
+
+            # Set modern application font
+            font = QFont("Segoe UI", 9)
+            font.setStyleStrategy(QFont.PreferAntialias)
+            app.setFont(font)
+
+            # 1. Instantiate Floating Corner Logo
+            self.corner_orb = CornerLogoOrb(node_id=self.node_id, node_name=self.node_name)
+            self.corner_orb.show()
+            self.corner_orb.play_entrance_animation()
+
+            # 2. Instantiate Central Dynamic Island
+            self.dynamic_island = DynamicIslandWidget(
+                node_id=self.node_id,
+                node_name=self.node_name,
+                shared_queue=self.log_queue
+            )
+            self.dynamic_island.show()
+            self.dynamic_island.play_entrance_animation()
+
+            # Wire click from Corner Orb to toggle Dynamic Island
+            self.corner_orb.clicked.connect(self._on_corner_orb_clicked)
+            self.dynamic_island.minimize_to_corner.connect(self._on_minimize_to_corner)
+
+            print("[✓] AEGIS Parakeet AI Neon Green Dynamic Island & Floating Corner HUD Active!")
+
+            # Background worker thread for network/heartbeats
+            t = threading.Thread(target=worker_func, daemon=True)
+            t.start()
+
+            sys.exit(app.exec_())
+        except Exception as e:
+            print(f"[!] HUD Exception: {e}")
+            worker_func()
+
+    def _on_corner_orb_clicked(self):
+        if not self.dynamic_island:
+            return
+        if self.dynamic_island.isVisible():
+            if self.dynamic_island.state != DynamicIslandWidget.STATE_EXPANDED:
+                self.dynamic_island.transition_to(DynamicIslandWidget.STATE_EXPANDED)
+            else:
+                self.dynamic_island.transition_to(DynamicIslandWidget.STATE_PILL_IDLE)
+        else:
+            self.dynamic_island.show()
+            self.dynamic_island.transition_to(DynamicIslandWidget.STATE_EXPANDED)
+
+    def _on_minimize_to_corner(self):
+        if self.dynamic_island:
+            self.dynamic_island.hide()
+        if self.corner_orb:
+            self.corner_orb.show()
+
+    def append_log(self, text: str, tag: str = ""):
+        self.log_queue.put(("log", (text, tag)))
+
+    def update_status(self, status: str, task_title: str = ""):
+        self.log_queue.put(("status", (status, task_title)))
+        if self.corner_orb:
+            self.corner_orb.set_busy(status in ["BUSY", "COMPUTING"])
+
+    def update_telemetry(self, gpu_text: str):
+        self.log_queue.put(("telemetry", gpu_text))
+
+    def show_warning(self, msg: str):
+        self.append_log(f"\n⚠️ [GATEWAY ALERT] {msg}\n", "rose")
+
+    def set_locked(self, locked: bool, reason: str = ""):
+        status = "LOCKED" if locked else "ONLINE"
+        self.update_status(status, reason or "Locked by operator")
+    def set_expanded(self, expand: bool):
+        self.log_queue.put(("expand", expand))
+
+    def toggle_expand(self):
+        self.log_queue.put(("toggle", None))
+
 
 class OverlayHUD:
     """Crash-proof Transparent Glassmorphic HUD with glowing Purple Atom Motif:
@@ -868,7 +1453,6 @@ class OverlayHUD:
         if self.root:
             self.root.after(100, self._process_queue)
 
-
 def http_post_json(url: str, data: dict, timeout: float = 6.0) -> dict:
     """Sends JSON POST request using standard Python library."""
     try:
@@ -912,50 +1496,21 @@ class DGXStandaloneAgent:
         self.hud = None
         if self.show_hud:
             try:
-                if sys.platform != "win32":
-                    if "DISPLAY" not in os.environ:
-                        for disp in [":0", ":1"]:
-                            if os.path.exists(f"/tmp/.X11-unix/X{disp.replace(':', '')}"):
-                                os.environ["DISPLAY"] = disp
-                                break
-                        if "DISPLAY" not in os.environ:
-                            os.environ["DISPLAY"] = ":0"
-
-                    if "XAUTHORITY" not in os.environ:
-                        user_xauth = os.path.expanduser("~/.Xauthority")
-                        if os.path.exists(user_xauth):
-                            os.environ["XAUTHORITY"] = user_xauth
-
                 if HAS_PYQT:
                     try:
-                        try:
-                            from aegis_node.overlay.dynamic_hud import AegisMasterHUD
-                        except ImportError:
-                            try:
-                                from dynamic_hud import AegisMasterHUD
-                            except ImportError:
-                                # Auto-download dynamic_hud.py from storage vault or github
-                                print("[*] Auto-fetching Parakeet AI Neon Green Dynamic HUD module...")
-                                for hud_url in [f"{self.storage_url}/dynamic_hud.py", "https://raw.githubusercontent.com/mukuld1511-bit/AEGIS/main/aegis_node/overlay/dynamic_hud.py"]:
-                                    try:
-                                        target_p = os.path.expanduser("~/dynamic_hud.py")
-                                        urllib.request.urlretrieve(hud_url, target_p)
-                                        if os.path.exists(target_p):
-                                            break
-                                    except Exception:
-                                        pass
-                                from dynamic_hud import AegisMasterHUD
                         self.hud = AegisMasterHUD(node_id=self.node_id, node_name=f"DGX Spark {self.node_id}")
                         print(f"[✓] Parakeet AI Neon Green Dynamic Island & Corner HUD active on DISPLAY {os.environ.get('DISPLAY', ':0')}")
                     except Exception as e:
-                        self.hud = PyQtOverlayHUD(node_id=self.node_id, node_name=f"DGX Spark {self.node_id}")
-                        print(f"[✓] PyQt5 Animated Orb HUD ready on DISPLAY {os.environ.get('DISPLAY', ':0')} ({e})")
+                        print(f"[!] PyQt5 HUD error ({e}), trying Tkinter...")
+                        if HAS_TK:
+                            self.hud = OverlayHUD(node_id=self.node_id, node_name=f"DGX Spark {self.node_id}")
+                            self.hud.start_hud_thread()
                 elif HAS_TK:
                     self.hud = OverlayHUD(node_id=self.node_id, node_name=f"DGX Spark {self.node_id}")
                     self.hud.start_hud_thread()
                     print(f"[✓] Tkinter Glass HUD activated on DISPLAY {os.environ.get('DISPLAY', ':0')}")
                 else:
-                    print("[!] No GUI library available for HUD. Run 'sudo apt-get install python3-pyqt5' or 'pip install PyQt5'.")
+                    print("[!] No GUI library available for HUD. Running in headless mode.")
             except Exception as e:
                 print(f"[!] Floating HUD note: {e}")
 
@@ -1410,22 +1965,26 @@ class DGXStandaloneAgent:
             time.sleep(self.poll_interval)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="AEGIS Standalone DGX Spark Node Agent with Floating HUD")
-    parser.add_argument("--id", default="dgx-node-1", help="Node ID (e.g., dgx-node-1)")
+    parser = argparse.ArgumentParser(description="AEGIS Standalone DGX Spark Node Agent with Parakeet AI Neon Green HUD")
+    parser.add_argument("--id", default="dgx-node-1", help="Node ID (e.g., dgx-node-1, dgx-node-2, dgx-node-3)")
     parser.add_argument("--gateway", default="https://raspberrypi.tailc8c1f6.ts.net", help="Raspberry Pi Tailscale Gateway")
-    parser.add_argument("--storage", default="https://labg418pc12.tailc8c1f6.ts.net:8443", help="AEGIS PC Vault URL")
+    parser.add_argument("--storage", default="http://100.88.197.6:9080", help="AEGIS PC Vault URL")
     parser.add_argument("--model", default=os.environ.get("AEGIS_MODEL", "qwen2.5-coder:32b"), help="Local Ollama model name (e.g. qwen2.5-coder:32b, llama3.3:70b)")
     parser.add_argument("--ctx", type=int, default=int(os.environ.get("AEGIS_NUM_CTX", "65536")), help="Context window token limit (default: 65536, up to 131072)")
     parser.add_argument("--interval", type=float, default=6.0, help="Heartbeat interval in seconds")
+    parser.add_argument("--hud", action="store_true", default=True, help="Enable desktop screen overlay HUD (enabled by default)")
     parser.add_argument("--no-hud", action="store_true", help="Disable desktop screen overlay HUD")
     parser.add_argument("--background", "-b", "--detach", action="store_true", help="Run agent completely in the background without exposed terminal")
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
 
-    # If --background is requested, detach into independent process and exit terminal immediately
+    # If --background or -b or --detach is requested, spawn detached background daemon and log to ~/aegis_agent.log
     if (args.background or os.environ.get("AEGIS_BACKGROUND") == "1") and not os.environ.get("_AEGIS_DETACHED"):
         env = os.environ.copy()
         env["_AEGIS_DETACHED"] = "1"
-        cmd = [sys.executable, os.path.abspath(__file__)] + [a for a in sys.argv[1:] if a not in ["--background", "-b", "--detach"]]
+        log_path = os.path.expanduser("~/aegis_agent.log")
+        log_file = open(log_path, "a", encoding="utf-8")
+        clean_args = [a for a in sys.argv[1:] if a not in ["--background", "-b", "--detach"]]
+        cmd = [sys.executable, os.path.abspath(__file__)] + clean_args
         kwargs = {}
         if sys.platform == "win32":
             kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
@@ -1435,15 +1994,16 @@ if __name__ == "__main__":
         proc = subprocess.Popen(
             cmd,
             env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=log_file,
+            stderr=log_file,
             stdin=subprocess.DEVNULL,
             **kwargs
         )
         print("=" * 65)
         print(f" [✓] AEGIS Agent ({args.id}) launched in BACKGROUND (PID: {proc.pid})")
-        print(f" [✓] Zero exposed terminal! Dynamic Island & Corner HUD floating on screen.")
-        print(f" [✓] You can now safely CLOSE this terminal window.")
+        print(f" [✓] Parakeet AI Neon Green Dynamic HUD active on DISPLAY {os.environ.get('DISPLAY', ':0')}")
+        print(f" [✓] Live agent log streaming to: {log_path}")
+        print(f" [✓] Terminal can now be safely CLOSED without stopping the agent.")
         print("=" * 65)
         sys.exit(0)
 
@@ -1460,3 +2020,4 @@ if __name__ == "__main__":
         agent.start_polling()
     except KeyboardInterrupt:
         print("\nAgent stopped.")
+
