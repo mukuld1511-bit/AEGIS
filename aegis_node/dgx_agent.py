@@ -202,10 +202,15 @@ class CornerLogoOrb(QWidget):
         self.is_busy = False
         self.is_hovered = False
 
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool | Qt.SubWindow
+        if sys.platform != "win32":
+            flags |= Qt.X11BypassWindowManagerHint
+        self.setWindowFlags(flags)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self.setAttribute(Qt.WA_X11DoNotAcceptFocus, True)
         self.setMouseTracking(True)
-        self.resize(self.orb_size, self.orb_size)
+        self.setFixedSize(self.orb_size, self.orb_size)
 
         self._position_in_corner()
 
@@ -242,7 +247,7 @@ class CornerLogoOrb(QWidget):
         self.move(self.final_x, self.start_y)
 
         self.entrance_step = 0
-        self.entrance_total = 20
+        self.entrance_total = 22
         self.entrance_timer = QTimer(self)
         self.entrance_timer.timeout.connect(self._entrance_tick)
         self.entrance_timer.start(16)
@@ -250,7 +255,7 @@ class CornerLogoOrb(QWidget):
     def _entrance_tick(self):
         self.entrance_step += 1
         t = self.entrance_step / float(self.entrance_total)
-        ease = 1.0 - math.pow(1.0 - t, 3)
+        ease = 1.0 - math.pow(1.0 - t, 4)
         cur_y = int(self.start_y + (self.final_y - self.start_y) * ease)
         self.move(self.final_x, cur_y)
         if self.entrance_step >= self.entrance_total:
@@ -426,15 +431,21 @@ class DynamicIslandWidget(QWidget):
         self.start_w, self.start_h = self.cur_w, self.cur_h
         self.target_w, self.target_h = self.cur_w, self.cur_h
 
-        # Window Flags
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        # Window Flags: Bypass taskbar/dock and float seamlessly
+        flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool | Qt.SubWindow
+        if sys.platform != "win32":
+            flags |= Qt.X11BypassWindowManagerHint
+        self.setWindowFlags(flags)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self.setAttribute(Qt.WA_X11DoNotAcceptFocus, True)
         self.setMouseTracking(True)
+        self.setFixedSize(self.cur_w, self.cur_h)
 
-        # Smooth cubic animation
+        # Smooth quartic animation
         self.is_animating = False
         self.anim_step = 0
-        self.anim_total = 14
+        self.anim_total = 22
         self.anim_timer = QTimer(self)
         self.anim_timer.timeout.connect(self._animation_tick)
 
@@ -460,20 +471,25 @@ class DynamicIslandWidget(QWidget):
         self.update()
 
     def _reposition_center(self):
-        screen = QApplication.primaryScreen().availableGeometry()
-        pos_x = screen.x() + int((screen.width() - self.cur_w) / 2)
-        pos_y = screen.y() + 14
-        self.setGeometry(pos_x, pos_y, self.cur_w, self.cur_h)
+        geom = QApplication.primaryScreen().geometry()
+        avail = QApplication.primaryScreen().availableGeometry()
+        # Physical monitor horizontal center (unaffected by side docks)
+        pos_x = geom.x() + int((geom.width() - self.cur_w) / 2)
+        # Anchor cleanly beneath GNOME top bar or top screen margin
+        pos_y = avail.y() + (6 if avail.y() > geom.y() else 10)
+        self.move(pos_x, pos_y)
 
     def play_entrance_animation(self):
-        screen = QApplication.primaryScreen().availableGeometry()
-        self.final_x = screen.x() + int((screen.width() - self.cur_w) / 2)
-        self.final_y = screen.y() + 14
-        self.start_y = screen.y() - self.cur_h - 30
-        self.setGeometry(self.final_x, self.start_y, self.cur_w, self.cur_h)
+        geom = QApplication.primaryScreen().geometry()
+        avail = QApplication.primaryScreen().availableGeometry()
+        self.final_x = geom.x() + int((geom.width() - self.cur_w) / 2)
+        self.final_y = avail.y() + (6 if avail.y() > geom.y() else 10)
+        self.start_y = avail.y() - self.cur_h - 20
+        self.setFixedSize(self.cur_w, self.cur_h)
+        self.move(self.final_x, self.start_y)
 
         self.entrance_step = 0
-        self.entrance_total = 18
+        self.entrance_total = 22
         self.entrance_timer = QTimer(self)
         self.entrance_timer.timeout.connect(self._entrance_tick)
         self.entrance_timer.start(16)
@@ -481,14 +497,15 @@ class DynamicIslandWidget(QWidget):
     def _entrance_tick(self):
         self.entrance_step += 1
         t = self.entrance_step / float(self.entrance_total)
-        ease = 1.0 - math.pow(1.0 - t, 3)
+        ease = 1.0 - math.pow(1.0 - t, 4)
         cur_y = int(self.start_y + (self.final_y - self.start_y) * ease)
-        self.setGeometry(self.final_x, cur_y, self.cur_w, self.cur_h)
+        self.move(self.final_x, cur_y)
         if self.entrance_step >= self.entrance_total:
             self.entrance_timer.stop()
 
     def _init_ui(self):
         self.master_layout = QVBoxLayout(self)
+        self.master_layout.setSizeConstraint(QtWidgets.QLayout.SetNoConstraint)
         self.master_layout.setContentsMargins(10, 6, 10, 6)
         self.master_layout.setSpacing(0)
 
@@ -801,9 +818,9 @@ class DynamicIslandWidget(QWidget):
         elif new_state == self.STATE_PILL_BUSY:
             self.target_w, self.target_h = self.dim_pill_busy
             self.hub_container.setVisible(False)
-            self.busy_row.setVisible(True)
-            self.lbl_activity.setVisible(True)
-            self.lbl_telem.setVisible(True)
+            self.busy_row.setVisible(False)
+            self.lbl_activity.setVisible(False)
+            self.lbl_telem.setVisible(False)
             self.btn_toggle.setText("▾")
         elif new_state == self.STATE_EXPANDED:
             self.target_w, self.target_h = self.dim_expanded
@@ -815,16 +832,26 @@ class DynamicIslandWidget(QWidget):
     def _animation_tick(self):
         self.anim_step += 1
         t = self.anim_step / float(self.anim_total)
-        ease = 1.0 - math.pow(1.0 - t, 3)
+        # Smooth quartic ease-out
+        ease = 1.0 - math.pow(1.0 - t, 4)
 
-        self.cur_w = int(self.start_w + (self.target_w - self.start_w) * ease)
-        self.cur_h = int(self.start_h + (self.target_h - self.start_h) * ease)
-        self._reposition_center()
+        new_w = int(self.start_w + (self.target_w - self.start_w) * ease)
+        new_h = int(self.start_h + (self.target_h - self.start_h) * ease)
+
+        if new_w != self.cur_w or new_h != self.cur_h:
+            self.cur_w = new_w
+            self.cur_h = new_h
+            self.setFixedSize(self.cur_w, self.cur_h)
+            self._reposition_center()
 
         if self.anim_step >= self.anim_total:
             self.anim_timer.stop()
             self.is_animating = False
             self.state = self.target_state
+            self.cur_w, self.cur_h = self.target_w, self.target_h
+            self.setFixedSize(self.cur_w, self.cur_h)
+            self._reposition_center()
+
             if self.state == self.STATE_EXPANDED:
                 self.hub_container.setVisible(True)
             elif self.state == self.STATE_PILL_BUSY:
@@ -1014,11 +1041,10 @@ class AegisMasterHUD(QObject):
         self.log_queue.put(("telemetry", telem_str))
 
     def set_expanded(self, expand: bool):
-        if self.island:
-            self.island.transition_to(DynamicIslandWidget.STATE_EXPANDED if expand else (DynamicIslandWidget.STATE_PILL_BUSY if self.island.is_busy else DynamicIslandWidget.STATE_PILL_IDLE))
+        self.log_queue.put(("expand", expand))
 
     def toggle_expand(self):
-        self._toggle_island()
+        self.log_queue.put(("toggle", None))
 
 class OverlayHUD:
     """Crash-proof Transparent Glassmorphic HUD with glowing Purple Atom Motif:
