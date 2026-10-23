@@ -50,12 +50,13 @@ echo "[1/4] Stopping old agent (if running)..."
 pkill -9 -f "dgx_agent.py" > /dev/null 2>&1 || true
 sleep 1
 
-# 2. Download latest agent from local PC Vault or GitHub
+# 2. Download latest agent from local PC Vault or GitHub (with cache busting)
 echo "[2/4] Downloading latest dgx_agent.py..."
 DOWNLOAD_SUCCESS=false
-if curl -fsSL --connect-timeout 4 "${STORAGE_URL}/dgx_agent.py" -o "$AGENT_FILE" 2>/dev/null; then
+TS=$(date +%s)
+if curl -fsSL -H "Cache-Control: no-cache" -H "Pragma: no-cache" --connect-timeout 5 "${STORAGE_URL}/dgx_agent.py?v=${TS}" -o "$AGENT_FILE" 2>/dev/null; then
     DOWNLOAD_SUCCESS=true
-elif curl -fsSL --connect-timeout 8 "https://raw.githubusercontent.com/mukuld1511-bit/AEGIS/main/aegis_node/dgx_agent.py" -o "$AGENT_FILE" 2>/dev/null; then
+elif curl -fsSL -H "Cache-Control: no-cache" -H "Pragma: no-cache" --connect-timeout 8 "https://raw.githubusercontent.com/mukuld1511-bit/AEGIS/main/aegis_node/dgx_agent.py?v=${TS}" -o "$AGENT_FILE" 2>/dev/null; then
     DOWNLOAD_SUCCESS=true
 fi
 
