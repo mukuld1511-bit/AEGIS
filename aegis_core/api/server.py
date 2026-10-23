@@ -124,6 +124,7 @@ def create_app(state_mgr: StateManager, orchestrator: Orchestrator, safety: Safe
     @app.post("/api/heartbeat")
     @app.post("/api/dgx/heartbeat")
     @app.post("/api/client/heartbeat")
+    @app.post("/api/pc/heartbeat")
     def reverse_heartbeat_poll(telemetry: NodeTelemetry):
         """
         Reverse-Heartbeat Core Endpoint (Piet Architecture):

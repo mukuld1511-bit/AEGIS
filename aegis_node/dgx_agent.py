@@ -902,8 +902,13 @@ class DynamicIslandWidget(QWidget):
             self.transition_to(self.STATE_EXPANDED)
 
     def transition_to(self, new_state: int):
-        if self.is_animating or self.state == new_state:
+        if self.state == new_state and not self.is_animating:
             return
+
+        # If currently animating, immediately interrupt & smoothly start from current size
+        if self.is_animating:
+            self.anim_timer.stop()
+            self.is_animating = False
 
         self.is_animating = True
         self.target_state = new_state
@@ -1023,14 +1028,14 @@ class DynamicIslandWidget(QWidget):
                         self.lbl_done_details.setText(f"{title}  •  {self.active_model}")
                     else:
                         self.lbl_done_details.setText(f"Code Synced to Vault  •  {self.active_model}")
-                    if self.state != self.STATE_EXPANDED:
-                        self.transition_to(self.STATE_ALERT_DONE)
-                        # Apple 3.5s Notification card -> recoil smoothly to thin Idle capsule
-                        QTimer.singleShot(3500, self._auto_collapse_to_idle)
+                    # Always present completed notification droplet card with file details
+                    self.transition_to(self.STATE_ALERT_DONE)
+                    # Apple 3.5s Notification card -> recoil smoothly to thin Idle capsule
+                    QTimer.singleShot(3500, self._auto_collapse_to_idle)
                 else: # "ONLINE", "IDLE", "LOCKED", etc.
                     self.is_busy = False
                     self.lbl_activity.setText("Standing by")
-                    if self.state == self.STATE_PILL_BUSY:
+                    if self.state in [self.STATE_PILL_BUSY, self.STATE_ALERT_DONE] or (hasattr(self, "chk_automin") and self.chk_automin.isChecked()):
                         self.transition_to(self.STATE_PILL_IDLE)
             elif kind == "expand":
                 if data:
@@ -1060,7 +1065,7 @@ class DynamicIslandWidget(QWidget):
                 self.lbl_telem.setText(gpu_short)
 
     def _auto_collapse_to_idle(self):
-        if not self.is_busy and self.state == self.STATE_ALERT_DONE:
+        if not self.is_busy:
             self.transition_to(self.STATE_PILL_IDLE)
 
     def mousePressEvent(self, event):
@@ -1174,6 +1179,7 @@ class AegisMasterHUD(QObject):
 
         self.orb = None
         self.island = None
+        self.current_status = "ONLINE"
         self._init_components()
 
     def run_main_loop(self, worker_func=None):
@@ -1205,6 +1211,7 @@ class AegisMasterHUD(QObject):
             print(f"[!] AegisMasterHUD init error: {e}")
 
     def _on_island_status_changed(self, status: str):
+        self.current_status = status
         if self.orb:
             self.orb.set_busy(status in ["BUSY", "COMPUTING"])
 
@@ -1229,6 +1236,7 @@ class AegisMasterHUD(QObject):
         self.log_queue.put(("log", (text, tag)))
 
     def update_status(self, status: str, title: str = "", task_title: str = "", **kwargs):
+        self.current_status = status
         final_title = task_title or title
         self.log_queue.put(("status", (status, final_title)))
 
@@ -2180,6 +2188,9 @@ class DGXStandaloneAgent:
                     # Log heartbeat status so terminal is visibly alive
                     now_str = datetime.now().strftime("%H:%M:%S")
                     if not has_task and not has_cmd:
+                        if self.hud and not self.current_task_id:
+                            if getattr(self.hud, "current_status", "") == "DONE":
+                                self.hud.update_status("ONLINE")
                         if hb_tick % 4 == 1 or hb_tick <= 2:
                             print(f"[{now_str}] [✓ HEARTBEAT] Polled {gw} -> OK (Standing by)")
                     else:
