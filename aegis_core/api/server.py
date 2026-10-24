@@ -82,13 +82,18 @@ def create_app(state_mgr: StateManager, orchestrator: Orchestrator, safety: Safe
     DASHBOARD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "aegis_server", "dashboard"))
 
     @app.get("/")
-    def root(request: Request):
-        accept = request.headers.get("accept", "")
-        # If accessed from a web browser, serve the live dashboard
-        if "text/html" in accept:
-            index_path = os.path.join(DASHBOARD_DIR, "index.html")
-            if os.path.exists(index_path):
-                return FileResponse(index_path)
+    def root():
+        index_path = os.path.join(DASHBOARD_DIR, "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+        return {
+            "system": "AEGIS Central Gateway",
+            "gateway": "https://raspberrypi.tailc8c1f6.ts.net",
+            "status": "online"
+        }
+
+    @app.get("/api/gateway")
+    def get_gateway_info():
         return {
             "system": "AEGIS Central Gateway",
             "gateway": "https://raspberrypi.tailc8c1f6.ts.net",
@@ -443,12 +448,7 @@ def create_app(state_mgr: StateManager, orchestrator: Orchestrator, safety: Safe
             if websocket in active_ws_connections:
                 active_ws_connections.remove(websocket)
 
-    @app.get("/")
-    async def serve_dashboard_root():
-        index_file = os.path.join(DASHBOARD_DIR, "index.html")
-        if os.path.exists(index_file):
-            return FileResponse(index_file)
-        return {"status": "AEGIS Central Control Plane Online", "dashboard": "Not found"}
+
 
     if os.path.exists(DASHBOARD_DIR):
         app.mount("/", StaticFiles(directory=DASHBOARD_DIR, html=True), name="dashboard_static")
