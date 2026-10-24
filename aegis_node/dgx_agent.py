@@ -58,10 +58,10 @@ if sys.platform != "win32":
 # Optional GUI Frameworks for Desktop HUD (Prefer PyQt5 for true 32-bit ARGB glassmorphic dynamic island; fallback to Tkinter)
 try:
     from PyQt5 import QtCore, QtGui, QtWidgets
-    from PyQt5.QtCore import Qt, QTimer, QRect, QPoint, QRectF, pyqtSignal, QObject
+    from PyQt5.QtCore import Qt, QTimer, QRect, QPoint, QRectF, pyqtSignal, QObject, QEvent
     from PyQt5.QtGui import (
         QPainter, QColor, QPen, QBrush, QFont, QRadialGradient, 
-        QLinearGradient, QPainterPath, QCursor, QFontMetrics
+        QLinearGradient, QPainterPath, QCursor, QFontMetrics, QRegion
     )
     from PyQt5.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
@@ -214,6 +214,12 @@ def make_pure_desktop_overlay(widget):
                 "xprop", "-id", str(win_id),
                 "-f", "_NET_WM_STATE", "32a",
                 "-set", "_NET_WM_STATE", "_NET_WM_STATE_SKIP_TASKBAR _NET_WM_STATE_SKIP_PAGER _NET_WM_STATE_ABOVE"
+            ], capture_output=True, timeout=0.3)
+            # Enable Picom/KWin/Mutter blur behind translucent window
+            subprocess.run([
+                "xprop", "-id", str(win_id),
+                "-f", "_KDE_NET_WM_BLUR_BEHIND_REGION", "32c",
+                "-set", "_KDE_NET_WM_BLUR_BEHIND_REGION", "0"
             ], capture_output=True, timeout=0.3)
         except Exception:
             pass
@@ -419,12 +425,61 @@ class CornerLogoOrb(QWidget):
         painter.drawEllipse(QRectF(cx - 2.5, pip_y, 5.0, 5.0))
 
 
+class Spring:
+    """Second-order harmonic spring physics engine: m*x'' + c*x' + k*(x - target) = 0.
+    Provides organic tactile overshoot, mass inertia, and natural rubbery snap
+    mirroring the Apple iOS Dynamic Island fluid transitions.
+    """
+    def __init__(self, val: float = 0.0, target: float = 0.0, stiffness: float = 305.0, damping: float = 21.5, mass: float = 1.0):
+        self.val = float(val)
+        self.target = float(target)
+        self.vel = 0.0
+        self.k = float(stiffness)  # Spring constant
+        self.c = float(damping)    # Viscous damping coefficient
+        self.m = float(mass)       # Mass
+
+    def snap_to(self, val: float):
+        """Immediately reset position and cancel velocity."""
+        self.val = float(val)
+        self.target = float(val)
+        self.vel = 0.0
+
+    def set_target(self, target: float):
+        self.target = float(target)
+
+    def update(self, dt: float = 0.016) -> bool:
+        """Advance physics state by dt using semi-implicit Euler integration.
+        Returns True if spring has settled at equilibrium, False otherwise.
+        """
+        displacement = self.val - self.target
+        force = -self.k * displacement - self.c * self.vel
+        accel = force / self.m
+
+        # Semi-implicit Euler integration
+        self.vel += accel * dt
+        self.val += self.vel * dt
+
+        # Settle condition: sub-pixel threshold
+        if abs(displacement) < 0.25 and abs(self.vel) < 0.35:
+            self.val = self.target
+            self.vel = 0.0
+            return True
+        return False
+
+
 class DynamicIslandWidget(QWidget):
-    """Central Apple-Style Dynamic Island Notch with Smooth Pastel Transitions.
+    """Central Apple-Style Dynamic Island Notch with Harmonic Spring Physics Engine.
+    Architecture:
+    - Fixed Oversized Transparent Viewport (760 x 500 px) anchored at top-center.
+      Never resizes on animation ticks, eliminating OS/X11 window resizing jitter and flicker.
+    - Second-order harmonic spring physics (F = -kx - cv) with organic overshoot & rubbery bounce.
+    - Input masking via QRegion so transparent areas outside the active capsule are 100% click-through.
+    - True compositor glassmorphism with specular rim highlight, ambient soft aura, and optical border.
+
     States:
     1. STATE_PILL_IDLE:  Compact ~240 x 36 px minimal resting capsule at top-center.
-    2. STATE_PILL_BUSY:  Horizontally stretched ~540 x 36 px (SAME HEIGHT!) with live activity & wave.
-    3. STATE_ALERT_DONE: Downward stretched ~440 x 96 px notification card with tick & file details.
+    2. STATE_PILL_BUSY:  Horizontally stretched ~540 x 36 px (SAME 36px HEIGHT!) with live activity & wave.
+    3. STATE_ALERT_DONE: Downward stretched ~440 x 108 px notification card with checkmark & file details.
     4. STATE_EXPANDED:   Full ~680 x 440 px elegant frosted developer hub & telemetry console.
     """
     minimize_to_corner = pyqtSignal()
@@ -437,6 +492,9 @@ class DynamicIslandWidget(QWidget):
     STATE_ALERT_DONE = 2
     STATE_EXPANDED = 3
 
+    VIEWPORT_W = 760
+    VIEWPORT_H = 500
+
     def __init__(self, node_id="dgx-node-1", node_name="DGX Spark 01", shared_queue=None, parent=None):
         super().__init__(parent)
         self.node_id = node_id
@@ -445,23 +503,29 @@ class DynamicIslandWidget(QWidget):
         self.log_queue = shared_queue or queue.Queue()
 
         self.state = self.STATE_PILL_IDLE
+        self.target_state = self.STATE_PILL_IDLE
         self.current_status = "ONLINE"
         self.active_model = "qwen2.5-coder:32b"
         self.task_text = "Ready • Standing by"
         self.gpu_text = "GPU 0%"
         self.is_busy = False
 
-        # Authentic Apple Dynamic Island Dimensions
+        # Authentic Apple Dynamic Island State Dimensions
         self.dim_pill_idle = (240, 36)
         self.dim_pill_busy = (540, 36)    # EXACT SAME 36px HEIGHT!
-        self.dim_alert_done = (440, 96)   # Downward stretch droplet card
-        self.dim_expanded = (680, 440)
+        self.dim_alert_done = (440, 108)  # Downward stretch droplet card
+        self.dim_expanded = (680, 440)    # Full developer console
 
-        self.cur_w, self.cur_h = self.dim_pill_idle
-        self.start_w, self.start_h = self.cur_w, self.cur_h
-        self.target_w, self.target_h = self.cur_w, self.cur_h
+        # Harmonic Spring Physics Engine (Stiffness, Damping, Mass)
+        # Provides organic tactile overshoot and rubbery bounce
+        self.spring_w = Spring(val=self.dim_pill_idle[0], target=self.dim_pill_idle[0], stiffness=305.0, damping=21.5, mass=1.0)
+        self.spring_h = Spring(val=self.dim_pill_idle[1], target=self.dim_pill_idle[1], stiffness=315.0, damping=22.5, mass=1.0)
+        self.is_animating = False
 
-        # Window Flags: Pure desktop overlay immune to dock and taskbar (Qt.ToolTip enables override-redirect in X11)
+        self.physics_timer = QTimer(self)
+        self.physics_timer.timeout.connect(self._physics_tick)
+
+        # Window Flags: Pure desktop overlay immune to dock and taskbar
         flags = Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         if hasattr(Qt, "BypassWindowManagerHint"):
             flags |= Qt.BypassWindowManagerHint
@@ -474,14 +538,9 @@ class DynamicIslandWidget(QWidget):
         self.setAttribute(Qt.WA_X11DoNotAcceptFocus, True)
         self.setMouseTracking(True)
         self.target_screen = QApplication.primaryScreen()
-        self.setFixedSize(self.cur_w, self.cur_h)
 
-        # Smooth Ease-In Ease-Out animation
-        self.is_animating = False
-        self.anim_step = 0
-        self.anim_total = 22
-        self.anim_timer = QTimer(self)
-        self.anim_timer.timeout.connect(self._animation_tick)
+        # Fixed viewport: Geometry is set ONCE, never resized on animation ticks!
+        self.setFixedSize(self.VIEWPORT_W, self.VIEWPORT_H)
 
         # Subtle wave & spinner timers
         self.spinner_phase = 0.0
@@ -496,15 +555,27 @@ class DynamicIslandWidget(QWidget):
         self.q_timer.start(30)
 
         self._init_ui()
-        self._reposition_center()
+        self._position_viewport()
 
-    def update_node(self, node_id: str):
-        self.node_id = node_id
-        self.theme = get_node_theme(node_id)
-        self._apply_theme_styles()
-        self.update()
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._position_viewport()
+        self._enable_x11_blur()
 
-    def _reposition_center(self):
+    def _enable_x11_blur(self):
+        """Instructs X11 compositors (Picom / KWin / Mutter) to blur desktop under the notch."""
+        if sys.platform != "win32":
+            try:
+                wid = int(self.winId())
+                subprocess.run(
+                    ["xprop", "-id", str(wid), "-f", "_KDE_NET_WM_BLUR_BEHIND_REGION", "32c", "-set", "_KDE_NET_WM_BLUR_BEHIND_REGION", "0"],
+                    capture_output=True, timeout=0.3
+                )
+            except Exception:
+                pass
+
+    def _position_viewport(self):
+        """Positions the fixed viewport at top-center of the active screen once."""
         screen = getattr(self, "target_screen", None) or QApplication.primaryScreen()
         if not screen:
             screen = QApplication.screenAt(QCursor.pos())
@@ -514,60 +585,58 @@ class DynamicIslandWidget(QWidget):
         else:
             geom = QRect(0, 0, 1920, 1080)
             avail = geom
-        # True horizontal dead-center on current active monitor
-        pos_x = int(geom.x() + (geom.width() - self.cur_w) / 2)
-        # Position right below GNOME top bar or at screen top (anchored at top, pops down)
-        top_offset = avail.y() + 6 if avail.y() > geom.y() else (geom.y() + 10)
+        pos_x = int(geom.x() + (geom.width() - self.VIEWPORT_W) / 2)
+        top_offset = avail.y() + 4 if avail.y() > geom.y() else (geom.y() + 8)
         pos_y = int(top_offset)
-        # CRITICAL: setFixedSize updates Qt minimum/maximum size limits so setGeometry can pop down
-        self.setFixedSize(self.cur_w, self.cur_h)
-        self.setGeometry(pos_x, pos_y, self.cur_w, self.cur_h)
+        self.setGeometry(pos_x, pos_y, self.VIEWPORT_W, self.VIEWPORT_H)
+        self._sync_capsule_geometry()
+
+    def _reposition_center(self):
+        """Preserved for API compatibility."""
+        self._position_viewport()
+
+    def _sync_capsule_geometry(self):
+        """Syncs the internal capsule widget and input mask with current spring coordinates."""
+        cur_w = max(60.0, self.spring_w.val)
+        cur_h = max(28.0, self.spring_h.val)
+        capsule_x = (self.VIEWPORT_W - cur_w) / 2.0
+        capsule_y = 6.0
+        if hasattr(self, "capsule"):
+            self.capsule.setGeometry(int(capsule_x), int(capsule_y), int(cur_w), int(cur_h))
+
+        # Shape input mask so all transparent areas outside capsule pass clicks directly to desktop
+        pad = 8
+        mask_rect = QRect(int(capsule_x - pad), int(capsule_y - pad), int(cur_w + pad * 2), int(cur_h + pad * 2))
+        self.setMask(QRegion(mask_rect))
 
     def play_entrance_animation(self):
-        screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
-        if screen:
-            geom = screen.geometry()
-            avail = screen.availableGeometry()
-        else:
-            geom = QRect(0, 0, 1920, 1080)
-            avail = geom
-        self.final_y = int(avail.y() + 6 if avail.y() > geom.y() else (geom.y() + 10))
-        self.entrance_start_w = 70
-        self.entrance_target_w = self.cur_w
-
-        # Position at physical monitor top-center
-        pos_x = int(geom.x() + (geom.width() - self.entrance_start_w) / 2)
-        self.cur_w = self.entrance_start_w
-        self.setGeometry(pos_x, self.final_y, self.cur_w, self.cur_h)
-
-        self.entrance_step = 0
-        self.entrance_total = 24
-        self.entrance_timer = QTimer(self)
-        self.entrance_timer.timeout.connect(self._entrance_tick)
-        self.entrance_timer.start(16)
-
-    def _entrance_tick(self):
-        self.entrance_step += 1
-        t = self.entrance_step / float(self.entrance_total)
-        ease = ease_in_out(t)
-        cur_w = int(self.entrance_start_w + (self.entrance_target_w - self.entrance_start_w) * ease)
-        self.cur_w = cur_w
-        self._reposition_center()
-        if self.entrance_step >= self.entrance_total:
-            self.entrance_timer.stop()
-            self.cur_w = self.entrance_target_w
-            self._reposition_center()
-            self.update()
+        """Harmonic entrance animation: stretches naturally from narrow notch into idle pill."""
+        self._position_viewport()
+        self.spring_w.snap_to(70.0)
+        self.spring_h.snap_to(36.0)
+        self.spring_w.set_target(self.dim_pill_idle[0])
+        self.spring_h.set_target(self.dim_pill_idle[1])
+        self.target_state = self.STATE_PILL_IDLE
+        self.is_animating = True
+        self.physics_timer.start(16)
 
     def _init_ui(self):
-        self.master_layout = QVBoxLayout(self)
-        self.master_layout.setSizeConstraint(QtWidgets.QLayout.SetNoConstraint)
-        self.master_layout.setContentsMargins(8, 4, 8, 4)
-        self.master_layout.setSpacing(0)
+        # Master Capsule Container
+        self.capsule = QWidget(self)
+        self.capsule.setObjectName("islandCapsule")
+        self.capsule.setStyleSheet("#islandCapsule { background: transparent; }")
+        self.capsule.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.capsule.installEventFilter(self)
+
+        self.capsule_layout = QVBoxLayout(self.capsule)
+        self.capsule_layout.setSizeConstraint(QtWidgets.QLayout.SetNoConstraint)
+        self.capsule_layout.setContentsMargins(8, 4, 8, 4)
+        self.capsule_layout.setSpacing(0)
 
         # ── 1. COMPACT IDLE & HORIZONTALLY STRETCHED BUSY CAPSULE (Height 28px inside 36px) ──
-        self.pill_bar = QWidget(self)
+        self.pill_bar = QWidget(self.capsule)
         self.pill_bar.setFixedHeight(28)
+        self.pill_bar.installEventFilter(self)
         self.pill_layout = QHBoxLayout(self.pill_bar)
         self.pill_layout.setContentsMargins(4, 0, 4, 0)
         self.pill_layout.setSpacing(6)
@@ -579,17 +648,20 @@ class DynamicIslandWidget(QWidget):
         # Left: Soft Pastel Indicator Dot / Spinner / Checkmark
         self.lbl_dot = QLabel("●", self.pill_bar)
         self.lbl_dot.setAlignment(Qt.AlignCenter)
+        self.lbl_dot.installEventFilter(self)
         self.pill_layout.addWidget(self.lbl_dot)
 
         # Center Identity Badge (SPARK 01 • CODER)
         self.lbl_badge = QLabel(self.pill_bar)
         self.lbl_badge.setAlignment(Qt.AlignCenter)
+        self.lbl_badge.installEventFilter(self)
         self.pill_layout.addWidget(self.lbl_badge)
 
         # Activity summary label (Hidden in Idle, visible when horizontally stretched)
         self.lbl_activity = QLabel(self.task_text, self.pill_bar)
         self.lbl_activity.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
         self.lbl_activity.setVisible(False)
+        self.lbl_activity.installEventFilter(self)
         self.pill_layout.addWidget(self.lbl_activity, stretch=2)
 
         # Model Pill Badge (e.g. 32B, visible when stretched)
@@ -615,11 +687,12 @@ class DynamicIslandWidget(QWidget):
         self.spacer_right = QtWidgets.QSpacerItem(10, 0, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
         self.pill_layout.addItem(self.spacer_right)
 
-        self.master_layout.addWidget(self.pill_bar)
+        self.capsule_layout.addWidget(self.pill_bar)
 
         # ── 2. TASK DONE NOTIFICATION DROPLET CARD (Drops Down, Perfectly Centered) ──
-        self.done_card = QWidget(self)
+        self.done_card = QWidget(self.capsule)
         self.done_card.setVisible(False)
+        self.done_card.installEventFilter(self)
         done_layout = QVBoxLayout(self.done_card)
         done_layout.setContentsMargins(10, 6, 10, 6)
         done_layout.setSpacing(4)
@@ -666,10 +739,10 @@ class DynamicIslandWidget(QWidget):
         row2.addStretch(1)
         done_layout.addLayout(row2)
 
-        self.master_layout.addWidget(self.done_card)
+        self.capsule_layout.addWidget(self.done_card)
 
         # ── 3. EXPANDED CONTROL HUB CONTAINER ────────────────────────────
-        self.hub_container = QWidget(self)
+        self.hub_container = QWidget(self.capsule)
         self.hub_container.setVisible(False)
         hub_layout = QVBoxLayout(self.hub_container)
         hub_layout.setContentsMargins(6, 8, 6, 4)
@@ -707,9 +780,10 @@ class DynamicIslandWidget(QWidget):
         self.tab_widget.addTab(self.tab_telemetry, "Telemetry")
 
         hub_layout.addWidget(self.tab_widget)
-        self.master_layout.addWidget(self.hub_container)
+        self.capsule_layout.addWidget(self.hub_container)
 
         self._apply_theme_styles()
+        self._sync_capsule_geometry()
 
     def _apply_theme_styles(self):
         p_hex = self.theme["hex"]
@@ -789,6 +863,12 @@ class DynamicIslandWidget(QWidget):
             f"QTabBar::tab:selected {{ background: {p_dim}; color: {p_hex}; border: 1px solid rgba(255, 255, 255, 0.18); border-bottom: none; }} "
             f"QTabBar::tab:hover {{ color: #ffffff; background: rgba(36, 44, 64, 0.65); }}"
         )
+
+    def update_node(self, node_id: str):
+        self.node_id = node_id
+        self.theme = get_node_theme(node_id)
+        self._apply_theme_styles()
+        self.update()
 
     def _init_tab_work(self):
         layout = QVBoxLayout(self.tab_work)
@@ -948,19 +1028,11 @@ class DynamicIslandWidget(QWidget):
         if self.state == new_state and not self.is_animating:
             return
 
-        # If currently animating, immediately interrupt & smoothly start from current size
-        if self.is_animating:
-            self.anim_timer.stop()
-            self.is_animating = False
-
-        self.is_animating = True
         self.target_state = new_state
-        self.anim_step = 0
-        self.start_w, self.start_h = self.cur_w, self.cur_h
+        self.is_animating = True
 
-        # Immediately hide complex child views so shrinking animation stays smooth & clean
         if new_state == self.STATE_PILL_IDLE:
-            self.target_w, self.target_h = self.dim_pill_idle
+            target_w, target_h = self.dim_pill_idle
             self.hub_container.setVisible(False)
             self.done_card.setVisible(False)
             self.lbl_activity.setVisible(False)
@@ -973,7 +1045,7 @@ class DynamicIslandWidget(QWidget):
                 self.spacer_right.changeSize(10, 0, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
                 self.pill_layout.invalidate()
         elif new_state == self.STATE_PILL_BUSY:
-            self.target_w, self.target_h = self.dim_pill_busy
+            target_w, target_h = self.dim_pill_busy
             self.hub_container.setVisible(False)
             self.done_card.setVisible(False)
             self.btn_toggle.setText("▾")
@@ -982,7 +1054,7 @@ class DynamicIslandWidget(QWidget):
                 self.spacer_right.changeSize(0, 0, QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Minimum)
                 self.pill_layout.invalidate()
         elif new_state == self.STATE_ALERT_DONE:
-            self.target_w, self.target_h = self.dim_alert_done
+            target_w, target_h = self.dim_alert_done
             self.hub_container.setVisible(False)
             self.lbl_activity.setVisible(False)
             self.lbl_model_pill.setVisible(False)
@@ -990,56 +1062,57 @@ class DynamicIslandWidget(QWidget):
             self.lbl_dot.setText("✓")
             self.btn_toggle.setText("▾")
         elif new_state == self.STATE_EXPANDED:
-            self.target_w, self.target_h = self.dim_expanded
+            target_w, target_h = self.dim_expanded
             self.done_card.setVisible(False)
             self.btn_toggle.setText("▴")
 
-        self.anim_timer.start(16)
+        self.spring_w.set_target(target_w)
+        self.spring_h.set_target(target_h)
+        if not self.physics_timer.isActive():
+            self.physics_timer.start(16)
 
-    def _animation_tick(self):
-        self.anim_step += 1
-        t = self.anim_step / float(self.anim_total)
-        # Fluid Ease-In Ease-Out (C2-continuous smootherstep polynomial)
-        ease = ease_in_out(t)
+    def _physics_tick(self):
+        settled_w = self.spring_w.update(0.016)
+        settled_h = self.spring_h.update(0.016)
 
-        self.cur_w = int(self.start_w + (self.target_w - self.start_w) * ease)
-        self.cur_h = int(self.start_h + (self.target_h - self.start_h) * ease)
-        self._reposition_center()
+        self._sync_capsule_geometry()
 
-        # Reveal child containers smoothly as height expands downward
-        if self.target_state == self.STATE_EXPANDED and self.cur_h >= 180:
+        cur_h = self.spring_h.val
+        if self.target_state == self.STATE_EXPANDED and cur_h >= 180:
             if not self.hub_container.isVisible():
                 self.hub_container.setVisible(True)
-        elif self.target_state == self.STATE_ALERT_DONE and self.cur_h >= 60:
+        elif self.target_state == self.STATE_ALERT_DONE and cur_h >= 65:
             if not self.done_card.isVisible():
                 self.done_card.setVisible(True)
 
-        if self.anim_step >= self.anim_total:
-            self.anim_timer.stop()
+        self.update()
+
+        if settled_w and settled_h:
+            self.physics_timer.stop()
             self.is_animating = False
             self.state = self.target_state
-            self.cur_w, self.cur_h = self.target_w, self.target_h
-            self._reposition_center()
+            self._finalize_state()
 
-            if self.state == self.STATE_EXPANDED:
-                self.hub_container.setVisible(True)
-                self.done_card.setVisible(False)
-            elif self.state == self.STATE_ALERT_DONE:
-                self.done_card.setVisible(True)
-                self.hub_container.setVisible(False)
-            elif self.state == self.STATE_PILL_BUSY:
-                self.lbl_activity.setVisible(True)
-                self.lbl_model_pill.setVisible(True)
-                self.lbl_telem.setVisible(True)
-                self.done_card.setVisible(False)
-                self.hub_container.setVisible(False)
-            elif self.state == self.STATE_PILL_IDLE:
-                self.lbl_activity.setVisible(False)
-                self.lbl_model_pill.setVisible(False)
-                self.lbl_telem.setVisible(False)
-                self.done_card.setVisible(False)
-                self.hub_container.setVisible(False)
-            self.update()
+    def _finalize_state(self):
+        if self.state == self.STATE_EXPANDED:
+            self.hub_container.setVisible(True)
+            self.done_card.setVisible(False)
+        elif self.state == self.STATE_ALERT_DONE:
+            self.done_card.setVisible(True)
+            self.hub_container.setVisible(False)
+        elif self.state == self.STATE_PILL_BUSY:
+            self.lbl_activity.setVisible(True)
+            self.lbl_model_pill.setVisible(True)
+            self.lbl_telem.setVisible(True)
+            self.done_card.setVisible(False)
+            self.hub_container.setVisible(False)
+        elif self.state == self.STATE_PILL_IDLE:
+            self.lbl_activity.setVisible(False)
+            self.lbl_model_pill.setVisible(False)
+            self.lbl_telem.setVisible(False)
+            self.done_card.setVisible(False)
+            self.hub_container.setVisible(False)
+        self.update()
 
     def _pulse_tick(self):
         self.spinner_phase = (self.spinner_phase + 0.12) % (2 * math.pi)
@@ -1085,14 +1158,12 @@ class DynamicIslandWidget(QWidget):
                         self.lbl_done_details.setText(f"{title}  •  {self.active_model}")
                     else:
                         self.lbl_done_details.setText(f"Code Synced to Vault  •  {self.active_model}")
-                    # Always present completed notification droplet card popping down
                     self.transition_to(self.STATE_ALERT_DONE)
-                    # Apple 4s Notification card -> recoil smoothly to thin Idle capsule
+                    # Smooth auto-collapse to idle after 4 seconds
                     QTimer.singleShot(4000, self._auto_collapse_to_idle)
                 else: # "ONLINE", "IDLE", "LOCKED", etc.
                     self.is_busy = False
                     self.lbl_activity.setText("Standing by")
-                    # Do NOT interrupt user if hub is manually opened, or if Done alert is displaying!
                     if self.state in [self.STATE_EXPANDED, self.STATE_ALERT_DONE]:
                         pass
                     elif self.state == self.STATE_PILL_BUSY:
@@ -1106,7 +1177,6 @@ class DynamicIslandWidget(QWidget):
                 self._toggle_expanded()
             elif kind == "telemetry":
                 self.gpu_text = data
-                # Extract compact GPU percent for pill mode
                 gpu_short = "GPU 0%"
                 try:
                     if "GPU:" in data:
@@ -1128,15 +1198,35 @@ class DynamicIslandWidget(QWidget):
         if not self.is_busy and self.state == self.STATE_ALERT_DONE:
             self.transition_to(self.STATE_PILL_IDLE)
 
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            if watched in [self.capsule, self.pill_bar, self.lbl_badge, self.lbl_dot, self.lbl_activity, self.done_card]:
+                if self.state in [self.STATE_PILL_IDLE, self.STATE_PILL_BUSY, self.STATE_ALERT_DONE]:
+                    self.transition_to(self.STATE_EXPANDED)
+                    return True
+                elif self.state == self.STATE_EXPANDED and event.pos().y() <= 36:
+                    self.transition_to(self.STATE_PILL_BUSY if self.is_busy else self.STATE_PILL_IDLE)
+                    return True
+        return super().eventFilter(watched, event)
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
+            cur_w = float(self.spring_w.val)
+            cur_h = float(self.spring_h.val)
+            capsule_x = (self.VIEWPORT_W - cur_w) / 2.0
+            capsule_y = 6.0
+            capsule_rect = QRectF(capsule_x, capsule_y, cur_w, cur_h)
+
+            if not capsule_rect.contains(event.pos()):
+                event.ignore()
+                return
+
             if self.state in [self.STATE_PILL_IDLE, self.STATE_PILL_BUSY, self.STATE_ALERT_DONE]:
                 self.transition_to(self.STATE_EXPANDED)
                 event.accept()
                 return
             elif self.state == self.STATE_EXPANDED:
-                # Clicking the top capsule area collapses back to idle
-                if event.pos().y() <= 36:
+                if event.pos().y() <= capsule_y + 36:
                     self.transition_to(self.STATE_PILL_BUSY if self.is_busy else self.STATE_PILL_IDLE)
                     event.accept()
                     return
@@ -1148,32 +1238,36 @@ class DynamicIslandWidget(QWidget):
         painter.setRenderHint(QPainter.TextAntialiasing)
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
 
-        w = float(self.width())
-        h = float(self.height())
-        rect = QRectF(1.5, 1.5, w - 3, h - 3)
+        cur_w = float(self.spring_w.val)
+        cur_h = float(self.spring_h.val)
+        capsule_x = (self.VIEWPORT_W - cur_w) / 2.0
+        capsule_y = 6.0
+        rect = QRectF(capsule_x + 1.5, capsule_y + 1.5, cur_w - 3.0, cur_h - 3.0)
 
-        # Dynamic corner radius: Apple pill mode = fully rounded capsule (h/2), Done card = 20px, Hub = 18px
-        if self.state in [self.STATE_PILL_IDLE, self.STATE_PILL_BUSY]:
-            radius = h / 2.0
-        elif self.state == self.STATE_ALERT_DONE:
-            radius = 20.0
+        # Dynamic continuous corner radius:
+        # Morph smoothly from full pill capsule (half height) to card radius (20px) / hub radius (18px)
+        if cur_h <= 40.0:
+            radius = cur_h / 2.0
+        elif cur_h <= 120.0:
+            t = (cur_h - 40.0) / 80.0
+            radius = (1.0 - t) * (cur_h / 2.0) + t * 20.0
         else:
             radius = 18.0
 
         p_col = self.theme["primary"]
 
         # 1. Outer Ambient Soft Pastel Aura (Diffused Apple Glow)
-        glow_alpha = 48 if self.is_busy else (42 if self.state == self.STATE_ALERT_DONE else 22)
+        glow_alpha = 50 if self.is_busy else (44 if self.state == self.STATE_ALERT_DONE else 24)
         glow_color = QColor(p_col.red(), p_col.green(), p_col.blue(), glow_alpha)
-        painter.setPen(QPen(glow_color, 2.0))
+        painter.setPen(QPen(glow_color, 2.5))
         painter.setBrush(Qt.NoBrush)
-        painter.drawRoundedRect(rect.adjusted(-1, -1, 1, 1), radius + 1, radius + 1)
+        painter.drawRoundedRect(rect.adjusted(-1.5, -1.5, 1.5, 1.5), radius + 1.5, radius + 1.5)
 
-        # 2. Translucent Frosted Glass Body (Optical Glassmorphism ~75% opacity)
-        bg_grad = QLinearGradient(0, 0, 0, h)
-        bg_grad.setColorAt(0.0, QColor(24, 30, 46, 195))
-        bg_grad.setColorAt(0.35, QColor(14, 18, 30, 182))
-        bg_grad.setColorAt(1.0, QColor(8, 11, 20, 205))
+        # 2. Translucent Frosted Glass Body (Optical Glassmorphism)
+        bg_grad = QLinearGradient(capsule_x, capsule_y, capsule_x, capsule_y + cur_h)
+        bg_grad.setColorAt(0.0, QColor(22, 28, 42, 210))
+        bg_grad.setColorAt(0.35, QColor(14, 18, 28, 195))
+        bg_grad.setColorAt(1.0, QColor(8, 10, 18, 225))
         painter.setBrush(QBrush(bg_grad))
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(rect, radius, radius)
@@ -1183,13 +1277,15 @@ class DynamicIslandWidget(QWidget):
         spec_path.addRoundedRect(rect, radius, radius)
         painter.save()
         painter.setClipPath(spec_path)
-        spec_grad = QLinearGradient(0, 0, 0, min(24.0, h * 0.55))
-        spec_grad.setColorAt(0.0, QColor(255, 255, 255, 75))
-        spec_grad.setColorAt(0.22, QColor(255, 255, 255, 25))
+
+        spec_h = min(24.0, cur_h * 0.55)
+        spec_grad = QLinearGradient(capsule_x, capsule_y, capsule_x, capsule_y + spec_h)
+        spec_grad.setColorAt(0.0, QColor(255, 255, 255, 85))
+        spec_grad.setColorAt(0.25, QColor(255, 255, 255, 25))
         spec_grad.setColorAt(1.0, QColor(255, 255, 255, 0))
         painter.setBrush(QBrush(spec_grad))
         painter.setPen(Qt.NoPen)
-        painter.drawRect(QRectF(0, 0, w, 24))
+        painter.drawRect(QRectF(capsule_x, capsule_y, cur_w, spec_h))
 
         # Soft pastel tint across the glass interior
         tint_col = QColor(p_col.red(), p_col.green(), p_col.blue(), 18)
@@ -1197,35 +1293,35 @@ class DynamicIslandWidget(QWidget):
         painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), radius - 1, radius - 1)
         painter.restore()
 
-        # 4. Multi-Stop Specular Glass Border (Apple pastel glass rim)
+        # 4. Multi-Stop Specular Glass Rim Border
         if self.is_busy or self.state == self.STATE_ALERT_DONE:
-            border_pen = QPen(QColor(p_col.red(), p_col.green(), p_col.blue(), 150), 1.2)
+            border_pen = QPen(QColor(p_col.red(), p_col.green(), p_col.blue(), 160), 1.2)
         else:
-            border_grad = QLinearGradient(0, 0, 0, h)
-            border_grad.setColorAt(0.0, QColor(255, 255, 255, 80))
-            border_grad.setColorAt(0.4, QColor(255, 255, 255, 30))
-            border_grad.setColorAt(1.0, QColor(p_col.red(), p_col.green(), p_col.blue(), 55))
+            border_grad = QLinearGradient(capsule_x, capsule_y, capsule_x, capsule_y + cur_h)
+            border_grad.setColorAt(0.0, QColor(255, 255, 255, 95))
+            border_grad.setColorAt(0.35, QColor(255, 255, 255, 35))
+            border_grad.setColorAt(1.0, QColor(p_col.red(), p_col.green(), p_col.blue(), 75))
             border_pen = QPen(QBrush(border_grad), 1.0)
         painter.setPen(border_pen)
         painter.setBrush(Qt.NoBrush)
         painter.drawRoundedRect(rect, radius, radius)
 
-        # 5. Subtle Pastel Progress Scanner Wave (When busy)
+        # 5. Subtle Pastel Progress Scanner Wave (When busy in pill mode)
         if self.is_busy and self.state == self.STATE_PILL_BUSY:
             scan_path = QPainterPath()
             scan_path.addRoundedRect(rect, radius, radius)
             painter.save()
             painter.setClipPath(scan_path)
 
-            wave_x = (math.sin(self.wave_phase) * 0.5 + 0.5) * w
-            wave_grad = QLinearGradient(wave_x - 90, 0, wave_x + 90, 0)
+            wave_center = capsule_x + (math.sin(self.wave_phase) * 0.5 + 0.5) * cur_w
+            wave_grad = QLinearGradient(wave_center - 90, 0, wave_center + 90, 0)
             wave_grad.setColorAt(0.0, QColor(p_col.red(), p_col.green(), p_col.blue(), 0))
-            wave_grad.setColorAt(0.5, QColor(p_col.red(), p_col.green(), p_col.blue(), 110))
+            wave_grad.setColorAt(0.5, QColor(p_col.red(), p_col.green(), p_col.blue(), 125))
             wave_grad.setColorAt(1.0, QColor(p_col.red(), p_col.green(), p_col.blue(), 0))
 
             painter.setPen(Qt.NoPen)
             painter.setBrush(QBrush(wave_grad))
-            painter.drawRect(QRectF(wave_x - 90, h - 2.5, 180, 2.5))
+            painter.drawRect(QRectF(wave_center - 90, capsule_y + cur_h - 2.5, 180, 2.5))
             painter.restore()
 
 
