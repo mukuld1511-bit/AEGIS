@@ -3,13 +3,24 @@
  * Handles real-time WebSockets, Web Speech API, terminal streaming, and safety confirmations.
  */
 
-// Target API Hosts (Coordinator and Storage)
-const API_BASE = window.location.origin;
+// Target API Hosts (Coordinator and Storage) with resilient Tailscale / Local Port detection
+const isDirectPiPort = window.location.port === '9000';
+const isFunnel = window.location.hostname.includes('tail') || window.location.hostname.includes('.ts.net');
 const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-// Connect to Coordinator on port 9000
-const WS_URL = `${WS_PROTOCOL}//${window.location.hostname}:9000/ws/cluster`;
-// Connect to Storage Vault on port 9080
-const STORAGE_BASE = window.location.port === '9080' ? '' : `${window.location.protocol}//${window.location.hostname}:9080`;
+
+// Connect to Coordinator: If on Funnel or direct port 9000, use window.location.host; otherwise port 9000
+const WS_URL = (isDirectPiPort || isFunnel)
+  ? `${WS_PROTOCOL}//${window.location.host}/ws/cluster`
+  : `${WS_PROTOCOL}//${window.location.hostname}:9000/ws/cluster`;
+
+const API_BASE = (isDirectPiPort || isFunnel)
+  ? window.location.origin
+  : `${window.location.protocol}//${window.location.hostname}:9000`;
+
+// Storage Vault (i7-14700 PC): Port 9080
+const STORAGE_BASE = window.location.port === '9080'
+  ? ''
+  : (isFunnel ? `${window.location.protocol}//${window.location.hostname}:9080` : `${window.location.protocol}//${window.location.hostname}:9080`);
 
 // DOM Elements
 const cmdInput = document.getElementById('cmd-input-field');
@@ -41,12 +52,12 @@ let ws = null;
 let currentPendingTaskId = null;
 let selectedNodeId = 'dgx-node-1';
 
-// Initial default node data mapped to the 8 ultimate models (899B / 1024 GB Cluster)
+// Initial default node data mapped to the flagship models (4 DGX System + Extended Cluster)
 let nodesData = [
-  { id: 'dgx-node-1', name: 'DGX Spark 01 - Lead Coder', status: 'online', model: 'Qwen2.5-Coder:32B (65K Context)', vram_used: 19.5, vram_total: 128, gpu_pct: 14, temp: 45, screen: ':0 (Lead Coder HUD)' },
+  { id: 'dgx-node-1', name: 'DGX Spark 01 - Lead Synthesizer', status: 'online', model: 'Qwen2.5-Coder:32B (65K Context)', vram_used: 19.5, vram_total: 128, gpu_pct: 14, temp: 45, screen: ':0 (Lead Coder HUD)' },
   { id: 'dgx-node-2', name: 'DGX Spark 02 - Reviewer & QA', status: 'online', model: 'Qwen2.5-Coder:32B (QA & Pytest)', vram_used: 19.5, vram_total: 128, gpu_pct: 8, temp: 41, screen: ':0 (QA Review HUD)' },
-  { id: 'dgx-node-3', name: 'DGX Spark 03 - Vision Model', status: 'online', model: 'Pixtral Large (124B Multimodal)', vram_used: 70.0, vram_total: 128, gpu_pct: 16, temp: 44, screen: ':0 (Pixtral Vision HUD)' },
-  { id: 'dgx-node-4', name: 'DGX Spark 04 - Writer & Reasoner', status: 'online', model: 'Mixtral 8x22B MoE (141B)', vram_used: 80.0, vram_total: 128, gpu_pct: 22, temp: 48, screen: ':0 (Deep Reason HUD)' },
+  { id: 'dgx-node-3', name: 'DGX Spark 03 - Systems Architect', status: 'online', model: 'Llama-3.2-Vision:90B (Arch & Multimodal)', vram_used: 65.0, vram_total: 128, gpu_pct: 16, temp: 44, screen: ':0 (Vision & Arch HUD)' },
+  { id: 'dgx-node-4', name: 'DGX Spark 04 - Deep Reasoner & Security', status: 'online', model: 'Qwen2.5:141B / DeepSeek (Security Sentinel)', vram_used: 82.0, vram_total: 128, gpu_pct: 22, temp: 48, screen: ':0 (Deep Reason HUD)' },
   { id: 'dgx-node-5', name: 'DGX Spark 05 - Security Auditor', status: 'online', model: 'Command R+ (104B Security)', vram_used: 62.0, vram_total: 128, gpu_pct: 6, temp: 40, screen: ':0 (Security HUD)' },
   { id: 'dgx-node-6', name: 'DGX Spark 06 - Image Gen Studio', status: 'online', model: 'FLUX.1-dev + schnell (20B FP16)', vram_used: 34.0, vram_total: 128, gpu_pct: 18, temp: 45, screen: ':0 (Diffusion HUD)' },
   { id: 'dgx-node-7', name: 'DGX Spark 07 - Comms & Git Ops', status: 'online', model: 'DBRX-Instruct MoE (132B)', vram_used: 75.0, vram_total: 128, gpu_pct: 12, temp: 43, screen: ':0 (Git & Router HUD)' },
@@ -98,13 +109,17 @@ function handleWsEvent(msg) {
   } else if (msg.event === 'task_created') {
     appendTerminal(`\n[TASK CREATED] ID: ${msg.data.task_id} | Node: ${msg.data.assigned_node_id}`, 'term-cyan');
     setNodeStatus(msg.data.assigned_node_id, 'busy');
-  } else if (msg.event === 'review_task_queued') {
-    const revNode = msg.data.reviewer_node || 'dgx-node-2';
+  } else if (msg.event === 'review_task_queued' || msg.event === 'pipeline_step_progress') {
+    const nextNode = msg.data.next_node || msg.data.reviewer_node || 'dgx-node-2';
+    const stage = msg.data.stage || 'Autonomous Inter-Node Handoff';
     const task = msg.data.task || {};
-    appendTerminal(`\n⚛ [AUTONOMOUS INTER-NODE HANDOFF]`, 'term-cyan');
-    appendTerminal(`  • DGX Node 1 completed code generation!`, 'term-emerald');
-    appendTerminal(`  • Auto-routing review & pytest suite (${task.task_id || 'task_rev'}) to ${revNode.toUpperCase()}...`, 'term-cyan');
-    setNodeStatus(revNode, 'busy');
+    appendTerminal(`\n⚛ [AUTONOMOUS PIPELINE: ${stage.toUpperCase()}]`, 'term-cyan');
+    appendTerminal(`  • Routing to ${nextNode.toUpperCase()} | Task: ${task.task_id || 'pipeline_subtask'} | Model: ${task.model || 'Auto'}`, 'term-emerald');
+    setNodeStatus(nextNode, 'busy');
+  } else if (msg.event === 'pipeline_completed') {
+    appendTerminal(`\n🏆 [4-NODE PIPELINE CONCLUDED]`, 'term-cyan');
+    appendTerminal(`  • Task ${msg.data.original_task_id} fully synthesized, reviewed, visually analyzed, and hardened!`, 'term-emerald');
+    if (typeof loadRecentArtifacts === 'function') loadRecentArtifacts();
   } else if (msg.event === 'dgx_task_finished') {
     appendTerminal(`[TASK FINISHED] ${msg.data.node_id?.toUpperCase() || 'NODE'} completed ${msg.data.task_id} (Exit: ${msg.data.exit_code})`, 'term-emerald');
     setNodeStatus(msg.data.node_id, 'online');

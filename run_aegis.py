@@ -16,7 +16,6 @@ from aegis_core.safety_guard import SafetyGuard
 from aegis_core.voice.dialogue_manager import DialogueManager
 from aegis_core.orchestrator import Orchestrator
 from aegis_core.api.server import create_app as create_core_app
-from aegis_server.storage_service import app as storage_app
 
 def start_core(host="0.0.0.0", port=9000):
     """Starts the AEGIS Central Coordinator on the Raspberry Pi or local system."""
@@ -35,6 +34,7 @@ def start_core(host="0.0.0.0", port=9000):
 
 def start_storage(host="0.0.0.0", port=9080):
     """Starts the shared artifact server & mission control on this i7-14700 PC."""
+    from aegis_server.storage_service import app as storage_app
     print(f"===========================================================")
     print(f" [AEGIS STORAGE] Starting on http://{host}:{port}")
     print(f" Mission Control UI: http://localhost:{port}/")
@@ -60,9 +60,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.core:
-        start_core(port=args.port or 8000)
+        start_core(port=args.port or 9000)
     elif args.server:
-        start_storage(port=args.port or 8080)
+        start_storage(port=args.port or 9080)
     elif args.all or len(sys.argv) == 1:
         # Default behavior: run all components
         start_all()

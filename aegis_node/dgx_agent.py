@@ -2214,8 +2214,37 @@ class DGXStandaloneAgent:
                 last_error = str(e)
         return f"vault_sync_failed: {last_error}"
 
-    def extract_and_vault_files(self, stdout_log: str, prompt: str, task_id: str) -> list:
-        """Extracts all code blocks, names them cleanly, saves locally, and auto-vaults each file."""
+    def _verify_python_syntax(self, file_path: str) -> tuple:
+        """Verifies Python syntax without executing user code."""
+        try:
+            import py_compile
+            py_compile.compile(file_path, doraise=True)
+            return True, ""
+        except py_compile.PyCompileError as e:
+            return False, str(e).splitlines()[-1]
+        except Exception as e:
+            return False, str(e)
+
+    def _repair_code(self, code: str, error_msg: str, model_name: str) -> str:
+        """1-shot autonomous code repair when syntax fails."""
+        repair_prompt = (
+            f"The following Python code failed syntax validation with error:\n"
+            f"{error_msg}\n\n"
+            f"Original code:\n```python\n{code}\n```\n\n"
+            f"Please output ONLY the fixed, syntactically correct Python code inside a single ```python block."
+        )
+        try:
+            resp = self.execute_ollama_query(repair_prompt, model_name=model_name, num_ctx=32768)
+            pattern = re.compile(r"```(?:python)?\n(.*?)```", re.DOTALL)
+            m = pattern.search(resp)
+            if m:
+                return m.group(1).strip()
+        except Exception:
+            pass
+        return ""
+
+    def extract_and_vault_files(self, stdout_log: str, prompt: str, task_id: str, model_name: str = "qwen2.5-coder:32b") -> list:
+        """Extracts all code blocks, verifies syntax, self-heals errors, saves locally, and auto-vaults each file."""
         saved_files = []
         task_dir = os.path.join("./workspace", task_id)
         os.makedirs(task_dir, exist_ok=True)
@@ -2260,6 +2289,23 @@ class DGXStandaloneAgent:
                 with open(file_path, "w", encoding="utf-8") as f:
                     f.write(code)
 
+                # Autonomous Self-Healing: Verify syntax if python code
+                if ext == "py":
+                    syntax_ok, syntax_err = self._verify_python_syntax(file_path)
+                    if not syntax_ok:
+                        print(f"[!] Syntax warning in {filename}: {syntax_err}. Attempting 1-shot self-healing...")
+                        if self.hud:
+                            self.hud.append_log(f"[!] Syntax error in {filename}. Autonomous healing...\n", "amber")
+                        repaired = self._repair_code(code, syntax_err, model_name)
+                        if repaired:
+                            with open(file_path, "w", encoding="utf-8") as f:
+                                f.write(repaired)
+                            syntax_ok2, _ = self._verify_python_syntax(file_path)
+                            if syntax_ok2:
+                                print(f"[✓] Successfully self-healed {filename}!")
+                                if self.hud:
+                                    self.hud.append_log(f"[✓] Successfully self-healed {filename}!\n", "green")
+
                 vault_res = self.upload_to_i7_vault(file_path, task_id)
                 print(f"[✓] Auto-Vault: {filename} -> {vault_res}")
                 if self.hud:
@@ -2302,26 +2348,50 @@ class DGXStandaloneAgent:
             return
 
         task_id = task.get("task_id", f"tsk_{int(time.time())}")
-        prompt = task.get("prompt", "")
+        raw_prompt = task.get("prompt", "")
         model_name = task.get("model") or self.default_model
         num_ctx = int(task.get("num_ctx") or self.default_num_ctx)
         self.current_task_id = task_id
 
+        # Multi-Agent Context Injection: If parent task exists, inject its generated files
+        parent_id = task.get("parent_task_id")
+        context_files = []
+        if parent_id:
+            parent_dir = os.path.join("./workspace", parent_id)
+            if os.path.exists(parent_dir):
+                for f in os.listdir(parent_dir):
+                    if f.endswith((".py", ".json", ".md", ".txt")) and f != "manifest.json":
+                        fp = os.path.join(parent_dir, f)
+                        try:
+                            with open(fp, "r", encoding="utf-8", errors="ignore") as cfile:
+                                context_files.append((f, cfile.read()[:8000]))
+                        except Exception:
+                            pass
+
+        prompt = raw_prompt
+        if context_files:
+            ctx_block = "\n\n### Prior Stage Artifacts From Cluster Pipeline:\n"
+            for fn, content in context_files:
+                ctx_block += f"#### File: `{fn}`\n```\n{content}\n```\n"
+            prompt = prompt + ctx_block
+
         print("\n" + "=" * 65)
         print(f"[{self.node_id}] REVERSE HEARTBEAT TASK RECEIVED: {task_id}")
-        print(f"Prompt: {prompt}")
+        if parent_id:
+            print(f"Pipeline Stage from Parent Task: {parent_id}")
+        print(f"Prompt: {raw_prompt}")
         print(f"Model: {model_name} | Context: {num_ctx:,} tokens")
         print("=" * 65)
 
         if self.hud:
-            self.hud.update_status("BUSY", task_title=prompt)
-            self.hud.append_log(f"\n>>> [TASK {task_id}] Model: {model_name} (Ctx: {num_ctx:,})\nPrompt: {prompt}\n", "purple")
+            self.hud.update_status("BUSY", task_title=raw_prompt)
+            self.hud.append_log(f"\n>>> [TASK {task_id}] Model: {model_name} (Ctx: {num_ctx:,})\nPrompt: {raw_prompt}\n", "purple")
 
         # 1. Run inference on local GPU with high context window
         stdout_log = self.execute_ollama_query(prompt, model_name=model_name, num_ctx=num_ctx)
 
-        # 2. Extract all code files and silently auto-vault them to the Central PC Vault
-        vaulted_records = self.extract_and_vault_files(stdout_log, prompt, task_id)
+        # 2. Extract all code files, self-heal syntax, and silently auto-vault them
+        vaulted_records = self.extract_and_vault_files(stdout_log, raw_prompt, task_id, model_name=model_name)
 
         # 3. Report completion back to Raspberry Pi Gateway
         complete_payload = {

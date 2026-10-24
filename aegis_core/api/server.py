@@ -21,6 +21,8 @@ from aegis_core.safety_guard import SafetyGuard
 from aegis_core.voice.dialogue_manager import DialogueManager
 from aegis_core.orchestrator import Orchestrator
 
+DASHBOARD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "aegis_server", "dashboard"))
+
 def create_app(state_mgr: StateManager, orchestrator: Orchestrator, safety: SafetyGuard) -> FastAPI:
     app = FastAPI(title="AEGIS Central Control Plane (Tailscale Funnel)", version="2.0.0")
 
@@ -276,38 +278,93 @@ def create_app(state_mgr: StateManager, orchestrator: Orchestrator, safety: Safe
         state_mgr.complete_task(payload.task_id, summary=payload.stdout[:200])
         state_mgr._broadcast("dgx_task_finished", payload.model_dump(mode="json"))
 
-        # If this was a primary coding task, automatically queue review task for DGX 2
-        is_review_task = payload.task_id.endswith("_rev")
-        rev_node = None
-        task_rec = state_mgr.tasks.get(payload.task_id)
-        if task_rec and task_rec.reviewer_node_id and task_rec.reviewer_node_id != payload.node_id:
-            rev_node = task_rec.reviewer_node_id
-        elif not is_review_task and payload.node_id == "dgx-node-1":
-            rev_node = "dgx-node-2"
+        # Determine if this task is part of the 4-node autonomous pipeline:
+        # dgx-node-1 (Coder) -> dgx-node-2 (QA & Review) -> dgx-node-3 (Vision & Arch) -> dgx-node-4 (Deep Reasoner & Security)
+        task_id = payload.task_id
+        storage_base = "http://100.88.197.6:9080/api/storage"
 
-        if rev_node and not is_review_task:
-            review_prompt = (
-                f"You are the Lead QA & Review Engineer on DGX Node 2. "
-                f"Review the generated code for task {payload.task_id}:\n\n"
-                f"{payload.stdout}\n\n"
-                f"Write a thorough code review report and comprehensive pytest unit tests. "
-                f"Save tests using '# filename: test_suite.py' on the first line of the code block."
-            )
-            review_task = {
-                "task_id": f"{payload.task_id}_rev",
-                "prompt": review_prompt,
-                "command": None,
+        next_stage = None
+        orig_task = task_id
+        if task_id.endswith("_sec"):
+            # Final pipeline stage completed on dgx-node-4
+            orig_task = task_id[:-4]
+            state_mgr._broadcast("pipeline_completed", {
+                "original_task_id": orig_task,
+                "final_node": payload.node_id,
+                "summary": "Full 4-node cluster synthesis & verification pipeline completed successfully."
+            })
+        elif task_id.endswith("_arch"):
+            # Stage 3 completed on dgx-node-3 -> handoff to dgx-node-4
+            orig_task = task_id[:-5]
+            next_stage = {
+                "target_node": "dgx-node-4",
+                "task_id": f"{orig_task}_sec",
+                "model": "qwen2.5:141b",
+                "num_ctx": 32768,
+                "prompt": (
+                    f"You are the Principal Security & Deep Reasoning Sentinel on DGX Node 4.\n"
+                    f"Perform deep architectural, boundary condition, and vulnerability audit on task '{orig_task}'.\n"
+                    f"Stage 1 code, Stage 2 QA report, and Stage 3 Architectural assessment are present in your workspace.\n\n"
+                    f"Provide formal correctness verification and output the certified hardened implementation.\n"
+                    f"Prefix final production file with '# filename: hardened_solution.py' on line 1."
+                ),
+                "stage_name": "Stage 4: Deep Reasoning & Security Sign-Off"
+            }
+        elif task_id.endswith("_qa") or task_id.endswith("_rev"):
+            # Stage 2 completed on dgx-node-2 -> handoff to dgx-node-3
+            orig_task = task_id[:-3] if task_id.endswith("_qa") else task_id[:-4]
+            next_stage = {
+                "target_node": "dgx-node-3",
+                "task_id": f"{orig_task}_arch",
+                "model": "llama3.2-vision:90b",
+                "num_ctx": 65536,
+                "prompt": (
+                    f"You are the Chief Systems Architect on DGX Node 3.\n"
+                    f"Analyze the system architecture, performance characteristics, and visual/data flow for task '{orig_task}'.\n"
+                    f"Synthesize architectural documentation and an ASCII/Mermaid component interaction diagram.\n"
+                    f"Save your architecture summary with '# filename: architecture_spec.md' on line 1."
+                ),
+                "stage_name": "Stage 3: Systems Architecture & Vision Evaluation"
+            }
+        elif payload.node_id == "dgx-node-1":
+            # Stage 1 completed on dgx-node-1 -> handoff to dgx-node-2
+            next_stage = {
+                "target_node": "dgx-node-2",
+                "task_id": f"{orig_task}_qa",
                 "model": "qwen2.5-coder:32b",
                 "num_ctx": 65536,
+                "prompt": (
+                    f"You are the Lead QA & Code Reviewer on DGX Node 2.\n"
+                    f"Review the generated code for task '{orig_task}' executed by Node 1:\n\n"
+                    f"{payload.stdout[:2000]}\n\n"
+                    f"Write comprehensive pytest unit tests and edge-case validations.\n"
+                    f"Save your tests with '# filename: test_suite.py' on the first line."
+                ),
+                "stage_name": "Stage 2: QA Review & Test Automation"
+            }
+
+        if next_stage:
+            t_node = next_stage["target_node"]
+            handoff_task = {
+                "task_id": next_stage["task_id"],
+                "prompt": next_stage["prompt"],
+                "command": None,
+                "model": next_stage["model"],
+                "num_ctx": next_stage.get("num_ctx", 65536),
                 "target_file": payload.generated_file,
                 "dictated_upload_cmd": None,
-                "is_review_handoff": True,
+                "is_pipeline_handoff": True,
                 "parent_task_id": payload.task_id,
-                "storage_vault_url": f"http://100.88.197.6:9080/api/storage/{rev_node}/upload/{payload.task_id}_rev"
+                "storage_vault_url": f"{storage_base}/{t_node}/upload/{next_stage['task_id']}"
             }
-            node_task_queues[rev_node].append(review_task)
-            state_mgr.update_node_status(rev_node, "busy", f"{payload.task_id}_rev")
-            state_mgr._broadcast("review_task_queued", {"reviewer_node": rev_node, "task": review_task})
+            node_task_queues[t_node].append(handoff_task)
+            state_mgr.update_node_status(t_node, "busy", next_stage["task_id"])
+            state_mgr._broadcast("pipeline_step_progress", {
+                "original_task_id": orig_task,
+                "next_node": t_node,
+                "stage": next_stage["stage_name"],
+                "task": handoff_task
+            })
 
         return {"status": "recorded", "task_id": payload.task_id}
 
@@ -386,8 +443,15 @@ def create_app(state_mgr: StateManager, orchestrator: Orchestrator, safety: Safe
             if websocket in active_ws_connections:
                 active_ws_connections.remove(websocket)
 
+    @app.get("/")
+    async def serve_dashboard_root():
+        index_file = os.path.join(DASHBOARD_DIR, "index.html")
+        if os.path.exists(index_file):
+            return FileResponse(index_file)
+        return {"status": "AEGIS Central Control Plane Online", "dashboard": "Not found"}
+
     if os.path.exists(DASHBOARD_DIR):
-        app.mount("/", StaticFiles(directory=DASHBOARD_DIR, html=False), name="dashboard_static")
+        app.mount("/", StaticFiles(directory=DASHBOARD_DIR, html=True), name="dashboard_static")
 
     return app
 

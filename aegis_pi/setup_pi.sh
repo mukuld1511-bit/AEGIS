@@ -49,6 +49,7 @@ PARENT_DIR="$(dirname "${SCRIPT_DIR}")"
 if [ -d "${PARENT_DIR}/aegis_core" ]; then
     cp -r "${PARENT_DIR}/aegis_core" "${INSTALL_DIR}/"
     cp -r "${PARENT_DIR}/aegis_pi" "${INSTALL_DIR}/"
+    cp -r "${PARENT_DIR}/aegis_server" "${INSTALL_DIR}/"
     cp -r "${PARENT_DIR}/config" "${INSTALL_DIR}/"
     cp "${PARENT_DIR}/run_aegis.py" "${INSTALL_DIR}/"
 else
@@ -57,6 +58,7 @@ else
     git clone https://github.com/mukuld1511-bit/AEGIS.git /tmp/aegis_clone
     cp -r /tmp/aegis_clone/aegis_core "${INSTALL_DIR}/"
     cp -r /tmp/aegis_clone/aegis_pi "${INSTALL_DIR}/"
+    cp -r /tmp/aegis_clone/aegis_server "${INSTALL_DIR}/"
     cp -r /tmp/aegis_clone/config "${INSTALL_DIR}/"
     cp /tmp/aegis_clone/run_aegis.py "${INSTALL_DIR}/"
     rm -rf /tmp/aegis_clone
