@@ -31,6 +31,15 @@ const siriAmbient = document.getElementById('siri-ambient');
 const voiceStateText = document.getElementById('voice-state-text');
 const spokenText = document.getElementById('spoken-text');
 
+// Dynamic Views & Functional Controls
+const voiceOverlay = document.getElementById('voice-overlay');
+const idleHero = document.getElementById('idle-hero');
+const routeSelector = document.getElementById('route-selector');
+const btnNewTask = document.getElementById('btn-new-task');
+const btnCopyResponse = document.getElementById('btn-copy-response');
+const copyBtnText = document.getElementById('copy-btn-text');
+const btnDownloadArtifact = document.getElementById('btn-download-artifact');
+
 const cmdInput = document.getElementById('cmd-input-field');
 const btnDispatch = document.getElementById('btn-dispatch-cmd');
 const btnMic = document.getElementById('btn-mic-toggle');
@@ -47,6 +56,22 @@ const btnCloseResponse = document.getElementById('btn-close-response');
 const activeModelTag = document.getElementById('active-model-tag');
 const taskStatusTag = document.getElementById('task-status-tag');
 const btnToggleTerminalStream = document.getElementById('btn-toggle-terminal-stream');
+
+// Visibility helpers for On-Demand Voice Avatar
+function showVoiceAvatar() {
+  if (voiceOverlay) voiceOverlay.classList.remove('hidden');
+  if (idleHero) idleHero.classList.add('hidden');
+}
+
+function hideVoiceAvatarIfIdle() {
+  if (isListening || (window.speechSynthesis && window.speechSynthesis.speaking)) return;
+  if (voiceOverlay) voiceOverlay.classList.add('hidden');
+  if (responseCard && !responseCard.classList.contains('hidden')) {
+    if (idleHero) idleHero.classList.add('hidden');
+  } else {
+    if (idleHero) idleHero.classList.remove('hidden');
+  }
+}
 
 // Telemetry Drawer
 const drawerBackdrop = document.getElementById('drawer-backdrop');
@@ -208,15 +233,18 @@ function speakAudioResponse(text) {
 
     if (naturalVoice) utterance.voice = naturalVoice;
 
-    // Avatar speaking animation synchronization
+    // Avatar speaking animation & dynamic visibility synchronization
     utterance.onstart = () => {
+      showVoiceAvatar();
       if (siriAvatar) siriAvatar.classList.add('speaking');
     };
     utterance.onend = () => {
       if (siriAvatar) siriAvatar.classList.remove('speaking');
+      hideVoiceAvatarIfIdle();
     };
     utterance.onerror = () => {
       if (siriAvatar) siriAvatar.classList.remove('speaking');
+      hideVoiceAvatarIfIdle();
     };
 
     window.speechSynthesis.speak(utterance);
@@ -239,6 +267,7 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
 
   recognition.onstart = () => {
     isListening = true;
+    showVoiceAvatar();
     if (siriAvatar) siriAvatar.classList.add('listening');
     if (btnMic) btnMic.classList.add('active-listening');
     if (voiceStateText) voiceStateText.textContent = 'Listening to voice command...';
@@ -304,6 +333,7 @@ function startListeningState() {
     alert('Speech Recognition is not supported on this browser. You can type commands below.');
     return;
   }
+  showVoiceAvatar();
   try {
     recognition.start();
   } catch (err) {
@@ -317,6 +347,7 @@ function stopListeningState() {
   if (btnMic) btnMic.classList.remove('active-listening');
   if (voiceStateText) voiceStateText.textContent = 'Ready &bull; Tap mic or type below';
   stopAudioWaveVisualizer();
+  hideVoiceAvatarIfIdle();
 }
 
 function toggleVoiceListening() {
@@ -359,7 +390,8 @@ async function dispatchCommand(commandText) {
   const prompt = commandText.trim();
   cmdInput.value = '';
 
-  // Show Response Card
+  // Minimal UI: Hide idle hero and display active execution card
+  if (idleHero) idleHero.classList.add('hidden');
   if (responseCard) {
     responseCard.classList.remove('hidden');
     resetStepper();
@@ -367,14 +399,22 @@ async function dispatchCommand(commandText) {
     responseContent.textContent = `Analyzing intent for: "${prompt}"...`;
   }
 
-  appendTerminal(`\n> [VOICE PROMPT]: "${prompt}"`, 'term-cyan');
+  appendTerminal(`\n> [PROMPT]: "${prompt}"`, 'term-cyan');
+
+  const selectedTarget = routeSelector ? routeSelector.value : 'pipeline';
+  const isPipeline = selectedTarget === 'pipeline';
+  const targetNode = isPipeline ? 'dgx-node-1' : selectedTarget;
 
   // Submit to Coordinator API
   try {
     const res = await fetch(`${API_BASE}/api/command`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ command: prompt, preferred_node: 'dgx-node-1' })
+      body: JSON.stringify({ 
+        command: prompt, 
+        preferred_node: targetNode,
+        pipeline_mode: isPipeline
+      })
     });
 
     if (res.ok) {
@@ -692,9 +732,80 @@ if (btnToggleTerminalStream) {
   });
 }
 
+// Route Selector Change Handler
+if (routeSelector) {
+  routeSelector.addEventListener('change', (e) => {
+    const text = e.target.options[e.target.selectedIndex].text;
+    if (activeModelTag) activeModelTag.textContent = text;
+    appendTerminal(`[ROUTE]: Selected target execution: ${e.target.value}`, 'term-cyan');
+  });
+}
+
+// New Task Button (Full workspace reset to clean minimal idle state)
+if (btnNewTask) {
+  btnNewTask.addEventListener('click', () => {
+    window.speechSynthesis.cancel();
+    if (recognition && isListening) {
+      try { recognition.stop(); } catch (e) {}
+    }
+    isListening = false;
+    if (siriAvatar) siriAvatar.classList.remove('speaking', 'listening');
+    if (btnMic) btnMic.classList.remove('active-listening');
+    stopAudioWaveVisualizer();
+
+    if (responseCard) responseCard.classList.add('hidden');
+    if (voiceOverlay) voiceOverlay.classList.add('hidden');
+    if (idleHero) idleHero.classList.remove('hidden');
+    if (cmdInput) {
+      cmdInput.value = '';
+      cmdInput.focus();
+    }
+    resetStepper();
+    appendTerminal(`[SESSION]: New task session ready.`, 'term-muted');
+  });
+}
+
+// Close Response Card (Returns to minimal idle hero)
 if (btnCloseResponse) {
   btnCloseResponse.addEventListener('click', () => {
-    responseCard.classList.add('hidden');
+    if (responseCard) responseCard.classList.add('hidden');
+    if (voiceOverlay) voiceOverlay.classList.add('hidden');
+    if (idleHero) idleHero.classList.remove('hidden');
+  });
+}
+
+// Copy Response Content / Generated Code
+if (btnCopyResponse) {
+  btnCopyResponse.addEventListener('click', async () => {
+    const textToCopy = responseContent ? responseContent.innerText : '';
+    if (!textToCopy) return;
+    try {
+      await navigator.clipboard.writeText(textToCopy);
+      btnCopyResponse.classList.add('copied');
+      if (copyBtnText) copyBtnText.textContent = 'Copied!';
+      setTimeout(() => {
+        btnCopyResponse.classList.remove('copied');
+        if (copyBtnText) copyBtnText.textContent = 'Copy';
+      }, 2000);
+    } catch (err) {
+      console.warn('Clipboard copy error:', err);
+    }
+  });
+}
+
+// Export / Download Generated Code as a File
+if (btnDownloadArtifact) {
+  btnDownloadArtifact.addEventListener('click', () => {
+    const code = responseContent ? responseContent.innerText : '# AEGIS Output Solution';
+    const blob = new Blob([code], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'aegis_solution.py';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   });
 }
 
