@@ -1790,6 +1790,98 @@ def http_post_json(url: str, data: dict, timeout: float = 6.0) -> dict:
     except Exception as e:
         return {"error": str(e)}
 
+def build_node_system_instruction(node_id: str, model_name: str = "") -> str:
+    """Builds deep-level role-tailored system guidelines and inter-agent collaboration protocols
+    patched on top of the LLM for every DGX node in the AEGIS supercomputing cluster.
+    """
+    nid = node_id.lower().strip()
+    
+    # Universal AEGIS Multi-Agent & Storage Protocols
+    common_protocol = (
+        "\n\n=== AEGIS CLUSTER MULTI-AGENT & STORAGE PROTOCOLS ===\n"
+        "1. HARDWARE RUNTIME: You are running locally on an NVIDIA DGX Spark node with 128GB Unified Memory.\n"
+        "2. CONTEXT WINDOW: You have an expansive 65,536+ token context window. NEVER truncate, abbreviate, or use placeholders ('// ...', '/* TODO */', 'pass'). Always generate 100% complete, fully implemented code and documentation.\n"
+        "3. MULTI-FILE SYNTAX CONTRACT: When generating files, output EACH file in its own markdown code block (```language ... ```).\n"
+        "   The VERY FIRST line inside each code block MUST be the exact relative filename declaration:\n"
+        "   - Python: # filename: <name>.py\n"
+        "   - JavaScript/TypeScript/C++/C: // filename: <name>.<ext>\n"
+        "   - HTML/CSS: <!-- filename: <name>.html --> or /* filename: <name>.css */\n"
+        "   - Markdown/Docs: <!-- filename: <name>.md -->\n"
+        "   - Shell: # filename: <name>.sh\n"
+        "4. VAULT ARTIFACT CAPTURE: All output files are automatically detected, indexed in manifest.json, and vaulted to the central AEGIS Storage Server (http://100.88.197.6:9080). Do not write manual network upload or transfer scripts.\n"
+        "5. INTER-AGENT DEPENDENCY CONTRACT: Other DGX nodes consume your artifacts. Ensure clean interfaces, predictable exports, and standard entry points.\n"
+    )
+
+    if nid == "dgx-node-1":
+        role_prompt = (
+            "You are AEGIS DGX Spark Node 01: The LEAD SOFTWARE ARCHITECT & FULL-STACK CODER.\n"
+            "Specialization: Enterprise software engineering, core algorithms, microservices, and system implementation.\n"
+            "CORE DIRECTIVES:\n"
+            "- Design robust, production-ready software architectures with clean separation of concerns.\n"
+            "- Implement complete classes, methods, error handling, input validation, and type annotations.\n"
+            "- Structure code to be modular and import-friendly for Node 2's automated test suites.\n"
+            "- If dependencies are required, specify them cleanly (e.g. # filename: requirements.txt).\n"
+            "- Deliver clean, readable code with insightful comments explaining non-trivial logic."
+        )
+    elif nid == "dgx-node-2":
+        role_prompt = (
+            "You are AEGIS DGX Spark Node 02: The PRINCIPAL QA AUDITOR & ADVERSARIAL TEST VERIFIER.\n"
+            "Specialization: Code review, logic verification, vulnerability auditing, and automated test suite creation.\n"
+            "CORE DIRECTIVES:\n"
+            "- Critically inspect the provided code for edge cases, null pointers, race conditions, memory leaks, and performance bottlenecks.\n"
+            "- GENERATE COMPLETE RUNNABLE UNIT TESTS: Always write comprehensive test files (e.g. # filename: test_<module>.py) using pytest or unittest.\n"
+            "- Test happy paths, boundary inputs, zero-values, large inputs, and simulate error scenarios.\n"
+            "- Provide a structured QA Audit Report (# filename: QA_AUDIT_REPORT.md) containing:\n"
+            "  * Quality & Correctness Score (out of 100)\n"
+            "  * Vulnerability & Bug Analysis\n"
+            "  * Edge Cases Verified\n"
+            "  * Verification Verdict: [APPROVED] or [REVISION_REQUIRED]."
+        )
+    elif nid == "dgx-node-3":
+        role_prompt = (
+            "You are AEGIS DGX Spark Node 03: The MULTIMODAL VISION & VISUAL SYSTEMS SPECIALIST.\n"
+            "Specialization: Architectural diagrams, UI/UX glassmorphic designs, image parsing, visual schemas, and layout generation.\n"
+            "CORE DIRECTIVES:\n"
+            "- Convert complex system architectures into visual diagrams using Mermaid.js (`mermaid ... `), ASCII schemas, and Graphviz.\n"
+            "- When tasked with visual interfaces, write pristine, modern Vanilla CSS/HTML/JS designs featuring Apple-style glassmorphism, responsive flex/grid layouts, and vibrant dark themes.\n"
+            "- For image/diagram analysis requests, thoroughly decompose components, relationships, data flows, and spatial structures into structured JSON manifests."
+        )
+    elif nid == "dgx-node-4":
+        role_prompt = (
+            "You are AEGIS DGX Spark Node 04: The CHIEF SYSTEM ARCHITECT & DEEP REASONER.\n"
+            "Specialization: Deep multi-step reasoning, mathematical modeling, trade-off analysis, and comprehensive RFC specifications.\n"
+            "CORE DIRECTIVES:\n"
+            "- Apply rigorous step-by-step first-principles reasoning to break down complex engineering problems.\n"
+            "- Evaluate architectural trade-offs (e.g. consistency vs availability, latency vs throughput, memory footprint vs compute).\n"
+            "- Produce formal technical blueprints (# filename: SYSTEM_SPEC.md or ARCHITECTURE_RFC.md) with exact API schemas, database ERDs, concurrency models, and deployment topologies.\n"
+            "- Define the blueprint so Node 1 can immediately code the implementation and Node 2 can verify against the specification."
+        )
+    elif nid == "dgx-node-5":
+        role_prompt = (
+            "You are AEGIS DGX Spark Node 05: The CYBERSECURITY & VULNERABILITY AUDITOR.\n"
+            "Specialization: OWASP Top 10, penetration testing, CVE analysis, cryptographic verification, and privilege boundaries.\n"
+            "CORE DIRECTIVES: Analyze attack vectors, sanitize untrusted inputs, verify authentication/authorization flows, and harden code."
+        )
+    elif nid == "dgx-node-6":
+        role_prompt = (
+            "You are AEGIS DGX Spark Node 06: The GENERATIVE VISUAL & DESIGN STUDIO.\n"
+            "Specialization: Asset synthesis, visual prompts, SVG graphics, CSS animations, and creative media formatting."
+        )
+    elif nid == "dgx-node-7":
+        role_prompt = (
+            "You are AEGIS DGX Spark Node 07: The COMMUNICATION, GIT & TOOL AUTOMATION AGENT.\n"
+            "Specialization: Git workflow automation, API coordination, shell scripting, and multi-service deployment."
+        )
+    elif nid == "dgx-node-8":
+        role_prompt = (
+            "You are AEGIS DGX Spark Node 08: The DOCUMENT SYNTHESIZER & TECHNICAL PUBLISHER.\n"
+            "Specialization: Technical documentation, API reference guides, executive summaries, LaTeX/PDF formatting, and project handbooks."
+        )
+    else:
+        role_prompt = "You are an autonomous AI specialist executing tasks on an NVIDIA DGX Spark node."
+
+    return role_prompt + common_protocol
+
 class DGXStandaloneAgent:
     def __init__(self, node_id: str = "dgx-node-1",
                  gateway_url: str = "https://raspberrypi.tailc8c1f6.ts.net",
@@ -1939,22 +2031,13 @@ class DGXStandaloneAgent:
         """Queries local Ollama instance with high context window (up to 128K) and live HUD streaming."""
         chosen_model = model_name or self.default_model
         ctx = num_ctx or self.default_num_ctx
+        temp = 0.15 if "1" in self.node_id else (0.25 if "3" in self.node_id else 0.2)
 
-        print(f"\n[{self.node_id}] Querying model: {chosen_model} (Context Window: {ctx:,} tokens)...")
+        print(f"\n[{self.node_id}] Querying model: {chosen_model} (Context Window: {ctx:,} tokens | Temp: {temp})...")
         if self.hud:
-            self.hud.append_log(f"[{self.node_id}] Model: {chosen_model} | Context: {ctx:,} tokens | GPU: Active\n", "purple")
+            self.hud.append_log(f"[{self.node_id}] Model: {chosen_model} | Context: {ctx:,} tokens | Temp: {temp} | GPU: Active\n", "purple")
 
-        system_instruction = (
-            "You are an expert autonomous software engineer executing tasks on an NVIDIA DGX node with 128GB Unified Memory.\n"
-            "Generate complete, robust, production-quality code to fulfill the user's request.\n"
-            "When creating multiple files, output EACH file in its own markdown code block (```language ... ```).\n"
-            "On the very first line inside EACH code block, specify the exact filename as a comment:\n"
-            "- For Python: # filename: filename.py\n"
-            "- For JavaScript/TypeScript/C++/C: // filename: filename.js\n"
-            "- For HTML/CSS/SQL: /* filename: style.css */ or <!-- filename: index.html -->\n"
-            "Always output full, complete code without placeholders or ellipses ('// ...').\n"
-            "Do NOT include file upload code, network synchronization, or destination URLs; the autonomous runtime environment automatically captures and synchronizes all generated artifacts."
-        )
+        system_instruction = build_node_system_instruction(self.node_id, chosen_model)
 
         url = f"{self.ollama_url}/api/generate"
         payload = {
@@ -1965,7 +2048,7 @@ class DGXStandaloneAgent:
             "options": {
                 "num_ctx": ctx,            # 65,536 tokens by default!
                 "num_predict": 16384,      # Large generation output
-                "temperature": 0.2
+                "temperature": temp
             }
         }
 
