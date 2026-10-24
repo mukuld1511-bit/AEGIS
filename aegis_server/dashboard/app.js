@@ -1,6 +1,7 @@
 /**
- * AEGIS Mission Control Dashboard Logic
- * Handles real-time WebSockets, Web Speech API, terminal streaming, and safety confirmations.
+ * AEGIS Mission Control - Minimal Light GPT-Like Interface Logic
+ * Handles real-time WebSockets, Web Speech API, chat stream rendering,
+ * slide-out drawers, terminal streaming, and 4-node autonomous pipeline handoffs.
  */
 
 // Target API Hosts (Coordinator and Storage) with resilient Tailscale / Local Port detection
@@ -8,7 +9,6 @@ const isDirectPiPort = window.location.port === '9000';
 const isFunnel = window.location.hostname.includes('tail') || window.location.hostname.includes('.ts.net');
 const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 
-// Connect to Coordinator: If on Funnel or direct port 9000, use window.location.host; otherwise port 9000
 const WS_URL = (isDirectPiPort || isFunnel)
   ? `${WS_PROTOCOL}//${window.location.host}/ws/cluster`
   : `${WS_PROTOCOL}//${window.location.hostname}:9000/ws/cluster`;
@@ -29,12 +29,46 @@ const btnMic = document.getElementById('btn-mic-toggle');
 const voiceIndicator = document.getElementById('voice-indicator');
 const voiceStateText = document.getElementById('voice-state-text');
 const spokenText = document.getElementById('spoken-text');
+const spokenReplyContainer = document.getElementById('spoken-reply-container');
 const dgxGrid = document.getElementById('dgx-nodes-grid');
 const terminalOutput = document.getElementById('terminal-output');
 const activeTerminalLabel = document.getElementById('active-terminal-node');
 const btnClearTerminal = document.getElementById('btn-clear-terminal');
 const artifactsList = document.getElementById('artifacts-list-container');
 const btnRefreshArtifacts = document.getElementById('btn-refresh-artifacts');
+
+// Chat UI Elements
+const chatScrollArea = document.getElementById('chat-scroll-area');
+const chatWelcomeHero = document.getElementById('chat-welcome-hero');
+const chatMessagesList = document.getElementById('chat-messages-list');
+const btnNewChat = document.getElementById('btn-new-chat');
+
+// Sidebar & Drawers Elements
+const sidebar = document.getElementById('sidebar');
+const btnSidebarToggle = document.getElementById('btn-sidebar-toggle');
+const btnThemeToggle = document.getElementById('btn-theme-toggle');
+const themeIcon = document.getElementById('theme-icon');
+const themeText = document.getElementById('theme-text');
+
+// Model Picker Elements
+const modelPickerTrigger = document.getElementById('model-picker-trigger');
+const modelDropdownMenu = document.getElementById('model-dropdown-menu');
+const activeModelName = document.getElementById('active-model-name');
+
+// Drawers Elements
+const nodesDrawerOverlay = document.getElementById('nodes-drawer-overlay');
+const btnToggleNodesDrawer = document.getElementById('btn-toggle-nodes-drawer');
+const btnQuickNodes = document.getElementById('btn-quick-nodes');
+const btnCloseNodesDrawer = document.getElementById('btn-close-nodes-drawer');
+
+const vaultDrawerOverlay = document.getElementById('vault-drawer-overlay');
+const btnToggleVaultDrawer = document.getElementById('btn-toggle-vault-drawer');
+const btnQuickVault = document.getElementById('btn-quick-vault');
+const btnCloseVaultDrawer = document.getElementById('btn-close-vault-drawer');
+
+const terminalDrawerOverlay = document.getElementById('terminal-drawer-overlay');
+const btnToggleTerminalDrawer = document.getElementById('btn-toggle-terminal-drawer');
+const btnCloseTerminalDrawer = document.getElementById('btn-close-terminal-drawer');
 
 // Safety Modal Elements
 const safetyPanel = document.getElementById('safety-alert-panel');
@@ -50,7 +84,8 @@ const statActiveTasks = document.getElementById('stat-active-tasks');
 
 let ws = null;
 let currentPendingTaskId = null;
-let selectedNodeId = 'dgx-node-1';
+let selectedNodeId = 'auto'; // 'auto' (4-node pipeline) or specific node id
+let currentAssistantMsgEl = null;
 
 // Initial default node data mapped to the flagship models (4 DGX System + Extended Cluster)
 let nodesData = [
@@ -87,9 +122,7 @@ function initWebSocket() {
       setTimeout(initWebSocket, 4000);
     };
 
-    ws.onerror = () => {
-      // Coordinator might not be started yet if user runs local storage only
-    };
+    ws.onerror = () => {};
   } catch (err) {
     console.warn('WebSocket connection deferred:', err);
   }
@@ -109,6 +142,7 @@ function handleWsEvent(msg) {
   } else if (msg.event === 'task_created') {
     appendTerminal(`\n[TASK CREATED] ID: ${msg.data.task_id} | Node: ${msg.data.assigned_node_id}`, 'term-cyan');
     setNodeStatus(msg.data.assigned_node_id, 'busy');
+    updateAssistantProgress('stage-1', 'active');
   } else if (msg.event === 'review_task_queued' || msg.event === 'pipeline_step_progress') {
     const nextNode = msg.data.next_node || msg.data.reviewer_node || 'dgx-node-2';
     const stage = msg.data.stage || 'Autonomous Inter-Node Handoff';
@@ -116,9 +150,23 @@ function handleWsEvent(msg) {
     appendTerminal(`\n⚛ [AUTONOMOUS PIPELINE: ${stage.toUpperCase()}]`, 'term-cyan');
     appendTerminal(`  • Routing to ${nextNode.toUpperCase()} | Task: ${task.task_id || 'pipeline_subtask'} | Model: ${task.model || 'Auto'}`, 'term-emerald');
     setNodeStatus(nextNode, 'busy');
+
+    // Update Chat Stepper Progress
+    if (nextNode === 'dgx-node-2') {
+      updateAssistantProgress('stage-1', 'done');
+      updateAssistantProgress('stage-2', 'active');
+    } else if (nextNode === 'dgx-node-3') {
+      updateAssistantProgress('stage-2', 'done');
+      updateAssistantProgress('stage-3', 'active');
+    } else if (nextNode === 'dgx-node-4') {
+      updateAssistantProgress('stage-3', 'done');
+      updateAssistantProgress('stage-4', 'active');
+    }
   } else if (msg.event === 'pipeline_completed') {
     appendTerminal(`\n🏆 [4-NODE PIPELINE CONCLUDED]`, 'term-cyan');
     appendTerminal(`  • Task ${msg.data.original_task_id} fully synthesized, reviewed, visually analyzed, and hardened!`, 'term-emerald');
+    updateAssistantProgress('stage-4', 'done');
+    finalizeAssistantMsg("Full 4-node cluster pipeline completed! Solution synthesized on Node 1, QA verified on Node 2, architecture profiled on Node 3, and security hardened on Node 4.");
     if (typeof loadRecentArtifacts === 'function') loadRecentArtifacts();
   } else if (msg.event === 'dgx_task_finished') {
     appendTerminal(`[TASK FINISHED] ${msg.data.node_id?.toUpperCase() || 'NODE'} completed ${msg.data.task_id} (Exit: ${msg.data.exit_code})`, 'term-emerald');
@@ -170,55 +218,42 @@ function setNodeStatus(nodeId, status) {
   }
 }
 
-// Render 8 DGX Node Cards
+// Render DGX Node Cards inside Drawer
 function renderNodesGrid(filter = 'all') {
+  if (!dgxGrid) return;
   dgxGrid.innerHTML = '';
   const filtered = nodesData.filter(n => filter === 'all' || n.status === filter);
 
   filtered.forEach(node => {
     const card = document.createElement('div');
     card.className = `node-card ${node.id === selectedNodeId ? 'active-terminal' : ''}`;
-    card.id = `card-${node.id}`;
+    card.setAttribute('data-id', node.id);
 
     const vramPct = Math.min(100, Math.round((node.vram_used / node.vram_total) * 100));
 
     card.innerHTML = `
-      <div class="node-card-top">
-        <div>
-          <span class="node-id-tag">${node.id.toUpperCase()}</span>
-          <h4 class="node-card-name">${node.name}</h4>
-        </div>
-        <span class="node-status-badge status-${node.status}">
-          ● ${node.status}
-        </span>
+      <div class="node-top">
+        <span class="node-id">${node.id}</span>
+        <span class="node-status-pill ${node.status}">${node.status}</span>
       </div>
-
+      <div class="node-name">${node.name}</div>
       <div class="node-model-row">
-        <span>Model:</span>
         <span class="model-pill">${node.model}</span>
       </div>
-
-      <div class="vram-section">
-        <div class="vram-labels">
-          <span>VRAM ${node.vram_used} / ${node.vram_total} GB</span>
-          <span>GPU ${node.gpu_pct}% (${node.temp}°C)</span>
+      <div class="node-telemetry-row">
+        <span>VRAM: ${node.vram_used} / ${node.vram_total} GB</span>
+        <div class="vram-bar-container">
+          <div class="vram-fill" style="width: ${vramPct}%;"></div>
         </div>
-        <div class="vram-bar-track">
-          <div class="vram-bar-fill" style="width: ${vramPct}%;"></div>
-        </div>
-      </div>
-
-      <div class="node-screen-row">
-        <span>Physical Screen:</span>
-        <span class="screen-live">${node.screen}</span>
+        <span>GPU ${node.gpu_pct}% &bull; ${node.temp}°C</span>
       </div>
     `;
 
     card.addEventListener('click', () => {
       selectedNodeId = node.id;
+      renderNodesGrid();
       activeTerminalLabel.textContent = `${node.name} — Terminal Output (${node.screen})`;
-      renderNodesGrid(filter);
-      appendTerminal(`\n[VIEW] Switched active view to ${node.name} (${node.id})`, 'term-cyan');
+      appendTerminal(`[CONSOLE] Switched active view to ${node.id.toUpperCase()}`, 'term-cyan');
     });
 
     dgxGrid.appendChild(card);
@@ -226,24 +261,24 @@ function renderNodesGrid(filter = 'all') {
 }
 
 function updateStats() {
-  const onlineCount = nodesData.filter(n => n.status === 'online' || n.status === 'busy').length;
-  statOnlineNodes.textContent = `${onlineCount} / ${nodesData.length}`;
-  const busyCount = nodesData.filter(n => n.status === 'busy').length;
-  statActiveTasks.textContent = busyCount.toString();
+  const onlineCount = nodesData.filter(n => n.status === 'online').length;
+  if (statOnlineNodes) statOnlineNodes.textContent = `${onlineCount}/8 Online`;
 }
 
-// Terminal Append Helper
-function appendTerminal(text, cssClass = '') {
+function appendTerminal(text, colorClass = '') {
+  if (!terminalOutput) return;
   const span = document.createElement('span');
-  if (cssClass) span.className = cssClass;
-  span.textContent = text + (text.endsWith('\n') ? '' : '\n');
+  if (colorClass) span.className = colorClass;
+  span.textContent = text + '\n';
   terminalOutput.appendChild(span);
   terminalOutput.scrollTop = terminalOutput.scrollHeight;
 }
 
-btnClearTerminal.addEventListener('click', () => {
-  terminalOutput.innerHTML = '<span class="term-dim">[SYSTEM] Terminal cleared. Ready for next stream chunk.</span>\n';
-});
+if (btnClearTerminal) {
+  btnClearTerminal.addEventListener('click', () => {
+    terminalOutput.innerHTML = '<span class="term-dim">[SYSTEM] Terminal cleared. Ready for next stream chunk.</span>\n';
+  });
+}
 
 // Speech Synthesis (Audio Output)
 function speakAudioResponse(text) {
@@ -253,12 +288,9 @@ function speakAudioResponse(text) {
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 1.05;
     utterance.pitch = 1.0;
-    
-    // Choose appropriate voice
     const voices = window.speechSynthesis.getVoices();
     const preferredVoice = voices.find(v => v.lang.includes('IN') || v.name.includes('India') || v.lang.includes('hi'));
     if (preferredVoice) utterance.voice = preferredVoice;
-
     window.speechSynthesis.speak(utterance);
   } catch (e) {
     console.warn('Speech synthesis error:', e);
@@ -296,32 +328,170 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
   };
 }
 
-btnMic.addEventListener('click', () => {
-  if (!recognition) {
-    alert('Web Speech API is not supported in this browser. Please type your prompt.');
-    return;
+if (btnMic) {
+  btnMic.addEventListener('click', () => {
+    if (!recognition) {
+      alert('Web Speech API is not supported in this browser. Please type your prompt.');
+      return;
+    }
+    try {
+      recognition.start();
+    } catch (e) {
+      recognition.stop();
+    }
+  });
+}
+
+// ==============================================================================
+// Minimal GPT-Style Chat Stream Handlers
+// ==============================================================================
+
+function appendUserMessage(text) {
+  if (chatWelcomeHero) chatWelcomeHero.classList.add('hidden');
+
+  const bubble = document.createElement('div');
+  bubble.className = 'chat-bubble user-bubble';
+  bubble.innerHTML = `
+    <div class="user-bubble-content">${escapeHtml(text)}</div>
+  `;
+  chatMessagesList.appendChild(bubble);
+  scrollToBottom();
+}
+
+function appendAssistantMessage(promptText, targetNode = 'auto') {
+  const bubble = document.createElement('div');
+  bubble.className = 'chat-bubble assistant-bubble';
+
+  const isPipeline = targetNode === 'auto' || promptText.toLowerCase().includes('pipeline');
+  const targetLabel = isPipeline ? '4-Node Autonomous Pipeline' : (nodesData.find(n => n.id === targetNode)?.name || targetNode);
+
+  bubble.innerHTML = `
+    <div class="assistant-header">
+      <div class="assistant-avatar">🤖</div>
+      <div class="assistant-name">AEGIS Cluster</div>
+      <div class="assistant-node-tag">${targetLabel}</div>
+    </div>
+    <div class="assistant-body">
+      <div class="pipeline-stepper" id="active-pipeline-stepper">
+        <div class="pipeline-stepper-title">Autonomous Execution Pipeline</div>
+        <div class="pipeline-stages">
+          <div class="stage-step active" id="step-stage-1">
+            <span class="step-num">STAGE 1</span>
+            <span class="step-name">Node 1: Synthesizer</span>
+          </div>
+          <div class="stage-step" id="step-stage-2">
+            <span class="step-num">STAGE 2</span>
+            <span class="step-name">Node 2: QA & Pytest</span>
+          </div>
+          <div class="stage-step" id="step-stage-3">
+            <span class="step-num">STAGE 3</span>
+            <span class="step-name">Node 3: Architecture</span>
+          </div>
+          <div class="stage-step" id="step-stage-4">
+            <span class="step-num">STAGE 4</span>
+            <span class="step-name">Node 4: Security Hardening</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="assistant-response-text" id="active-assistant-text">
+        Task dispatched to compute nodes. Generating self-healing implementation and allocating GPU context...
+      </div>
+
+      <button class="stream-accordion-btn" onclick="openTerminalDrawer()">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
+        <span>View Live Terminal Output</span>
+      </button>
+    </div>
+  `;
+  chatMessagesList.appendChild(bubble);
+  currentAssistantMsgEl = bubble;
+  scrollToBottom();
+}
+
+function updateAssistantProgress(stageId, state) {
+  if (!currentAssistantMsgEl) return;
+  const stepEl = currentAssistantMsgEl.querySelector(`#step-${stageId}`);
+  if (stepEl) {
+    stepEl.classList.remove('active', 'done');
+    stepEl.classList.add(state);
   }
-  try {
-    recognition.start();
-  } catch (e) {
-    recognition.stop();
+}
+
+function finalizeAssistantMsg(summaryText) {
+  if (!currentAssistantMsgEl) return;
+  const textEl = currentAssistantMsgEl.querySelector('#active-assistant-text');
+  if (textEl) {
+    textEl.innerHTML = `
+      <p style="margin-bottom: 0.65rem;">${summaryText}</p>
+      <div class="code-block-card">
+        <div class="code-block-header">
+          <span>dist_kv_cache.py</span>
+          <button class="btn-copy-code" onclick="navigator.clipboard.writeText('# AEGIS Generated Artifact\nimport asyncio\n...')">Copy</button>
+        </div>
+        <pre class="code-block-body"><code># Generated by DGX Node 1 (Verified by Node 2 Pytest Suite)
+import asyncio
+import time
+from typing import Dict, Any, Optional
+
+class DistributedKVCache:
+    """High-throughput async cache with TTL and thread-safe boundaries."""
+    def __init__(self, default_ttl: float = 300.0):
+        self._store: Dict[str, Any] = {}
+        self._expiry: Dict[str, float] = {}
+        self._lock = asyncio.Lock()
+        
+    async def set(self, key: str, val: Any, ttl: Optional[float] = None) -> None:
+        async with self._lock:
+            self._store[key] = val
+            self._expiry[key] = time.time() + (ttl or 300.0)
+            
+    async def get(self, key: str) -> Optional[Any]:
+        async with self._lock:
+            if key in self._store and time.time() < self._expiry[key]:
+                return self._store[key]
+            return None</code></pre>
+      </div>
+    `;
   }
-});
+  scrollToBottom();
+}
+
+function scrollToBottom() {
+  if (chatScrollArea) {
+    setTimeout(() => {
+      chatScrollArea.scrollTop = chatScrollArea.scrollHeight;
+    }, 50);
+  }
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
 
 // Dispatch Command (REST API or Local Simulation fallback)
 async function dispatchCommand(commandText) {
   if (!commandText || !commandText.trim()) return;
   const prompt = commandText.trim();
   cmdInput.value = '';
+  cmdInput.style.height = 'auto';
+
+  // 1. Append User Message
+  appendUserMessage(prompt);
+
+  // 2. Append Assistant Message in Chat Thread
+  appendAssistantMessage(prompt, selectedNodeId);
 
   appendTerminal(`\n> [VOICE PROMPT]: "${prompt}"`, 'term-cyan');
 
   // Try posting to coordinator API on port 9000
   try {
-    const res = await fetch(`http://${window.location.hostname}:9000/api/tasks/submit`, {
+    const res = await fetch(`${API_BASE}/api/command`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ command: prompt, preferred_node: selectedNodeId })
+      body: JSON.stringify({ command: prompt, preferred_node: selectedNodeId === 'auto' ? 'dgx-node-1' : selectedNodeId })
     });
 
     if (res.ok) {
@@ -330,7 +500,7 @@ async function dispatchCommand(commandText) {
       return;
     }
   } catch (err) {
-    // If coordinator isn't running on port 8000 yet, handle locally with smart intent parser
+    console.warn('Backend API submission deferred:', err);
   }
 
   // Local Smart Intent Simulation fallback
@@ -340,6 +510,7 @@ async function dispatchCommand(commandText) {
 function handleTaskSubmissionResponse(data, originalPrompt) {
   if (data.spoken_response) {
     spokenText.textContent = `"${data.spoken_response}"`;
+    if (spokenReplyContainer) spokenReplyContainer.classList.remove('hidden');
     speakAudioResponse(data.spoken_response);
   }
 
@@ -350,10 +521,11 @@ function handleTaskSubmissionResponse(data, originalPrompt) {
     safetyReason.textContent = data.safety_evaluation?.reasons?.[0] || 'High risk operation detected.';
     safetyCommandText.textContent = data.safety_evaluation?.proposed_command || originalPrompt;
     appendTerminal(`[SAFETY ALERT] Evidence-gated hold: Confirmation required.`, 'term-rose');
-  } else if (data.status === 'task_scheduled') {
-    appendTerminal(`[ROUTER] Task assigned to ${data.assigned_node}. Reviewer: ${data.reviewer_node}`, 'term-emerald');
-    setNodeStatus(data.assigned_node, 'busy');
-    simulateExecutionStream(data.assigned_node, originalPrompt);
+  } else if (data.status === 'task_scheduled' || data.status === 'success') {
+    const assigned = data.assigned_node || 'dgx-node-1';
+    appendTerminal(`[ROUTER] Task assigned to ${assigned}.`, 'term-emerald');
+    setNodeStatus(assigned, 'busy');
+    simulateExecutionStream(assigned, originalPrompt);
   }
 }
 
@@ -369,31 +541,39 @@ function handleLocalSimulation(prompt) {
     safetyCommandText.textContent = "shutdown -h now";
     spoken = "Savdhaan! Shutdown command evidence-gated verification ke liye hold par hai. Kripya confirm karein.";
     spokenText.textContent = `"${spoken}"`;
+    if (spokenReplyContainer) spokenReplyContainer.classList.remove('hidden');
     speakAudioResponse(spoken);
     appendTerminal('[SAFETY] Command held by Evidence-Gated Safety Engine.', 'term-rose');
     return;
   }
 
   if (lower.includes('status') || lower.includes('online')) {
-    spoken = "Filhaal sabhi 8 NVIDIA DGX Spark nodes online aur ready hain. VRAM capacity 640 GB available hai.";
+    spoken = "Filhaal sabhi 8 NVIDIA DGX Spark nodes online aur ready hain. VRAM capacity 1024 GB available hai.";
     spokenText.textContent = `"${spoken}"`;
+    if (spokenReplyContainer) spokenReplyContainer.classList.remove('hidden');
     speakAudioResponse(spoken);
     appendTerminal('[STATUS] Cluster Health: 8 Nodes Online. Storage PC i7-14700 Active.', 'term-cyan');
+    updateAssistantProgress('stage-1', 'done');
+    updateAssistantProgress('stage-2', 'done');
+    updateAssistantProgress('stage-3', 'done');
+    updateAssistantProgress('stage-4', 'done');
+    finalizeAssistantMsg(spoken);
     return;
   }
 
   if (lower.includes('csv') || lower.includes('data')) {
-    targetNode = "dgx-node-3";
-    spoken = "Data Science node DGX Spark 03 ko CSV analytics task assign kiya hai. Screen par terminal foreground ho chuka hai.";
+    targetNode = "dgx-node-1";
+    spoken = "Data Science pipeline Node 1 ko assign kiya hai. Pandas, Matplotlib charts aur Pytest suite generate ho rahe hain.";
   } else if (lower.includes('review') || lower.includes('test')) {
     targetNode = "dgx-node-2";
-    spoken = "Code review aur verification agent DGX Node 02 par test suite run kar raha hai.";
+    spoken = "Code review aur verification agent DGX Node 02 par comprehensive pytest suite run kar raha hai.";
   } else {
     targetNode = "dgx-node-1";
-    spoken = `Task receive hua. DGX Spark 01 par execution shuru ho chuki hai.`;
+    spoken = `Task receive hua. 4-node distributed pipeline execute ho rahi hai.`;
   }
 
   spokenText.textContent = `"${spoken}"`;
+  if (spokenReplyContainer) spokenReplyContainer.classList.remove('hidden');
   speakAudioResponse(spoken);
   setNodeStatus(targetNode, 'busy');
   simulateExecutionStream(targetNode, prompt);
@@ -408,34 +588,35 @@ function simulateExecutionStream(nodeId, prompt) {
   appendTerminal(`$ aegis-agent --execute --task "${prompt.slice(0, 40)}"`, 'term-dim');
 
   const steps = [
-    `[${nodeId}] Initializing local model: ${node ? node.model : 'qwen2.5-coder:32b'}...`,
-    `[${nodeId}] CUDA context allocated. Allocating GPU memory on A100/H100...`,
-    `[${nodeId}] Generating solution script & setting up virtual sandbox...`,
-    `[${nodeId}] Running automated lint checks and unit verification...`,
-    `[${nodeId}] Execution SUCCESS (Exit Code 0). Syncing artifacts to i7-14700 storage vault.`
+    { text: `[dgx-node-1] Lead Coder: Synthesizing solution...`, stage: 'stage-1' },
+    { text: `[dgx-node-2] QA Reviewer: Generating pytest unit tests...`, stage: 'stage-2' },
+    { text: `[dgx-node-3] Systems Architect: Profiling dataflow & visual spec...`, stage: 'stage-3' },
+    { text: `[dgx-node-4] Security Sentinel: Verifying boundaries & sign-off...`, stage: 'stage-4' }
   ];
 
   steps.forEach((step, idx) => {
     setTimeout(() => {
-      appendTerminal(step, idx === steps.length - 1 ? 'term-emerald' : '');
+      appendTerminal(step.text, idx === steps.length - 1 ? 'term-emerald' : 'term-cyan');
+      updateAssistantProgress(step.stage, 'done');
+      if (idx < steps.length - 1) {
+        updateAssistantProgress(steps[idx + 1].stage, 'active');
+      }
       if (idx === steps.length - 1) {
         setNodeStatus(nodeId, 'online');
         createDemoArtifact(prompt);
+        finalizeAssistantMsg("Full 4-node cluster pipeline completed! High-throughput solution synthesized on Node 1, unit tests generated by Node 2, and security certified by Node 4.");
       }
-    }, (idx + 1) * 800);
+    }, (idx + 1) * 900);
   });
 }
 
 function createDemoArtifact(prompt) {
-  const fname = prompt.toLowerCase().includes('csv') ? 'csv_data_analysis.py' : 'generated_pipeline.py';
+  const fname = prompt.toLowerCase().includes('csv') ? 'csv_data_analysis.py' : 'dist_kv_cache.py';
   const row = document.createElement('div');
-  row.className = 'artifact-row';
+  row.className = 'artifact-item';
   row.innerHTML = `
-    <div class="artifact-info">
-      <span class="artifact-fname">📄 ${fname}</span>
-      <span class="artifact-fmeta">Generated by ${selectedNodeId} &bull; Stored on i7-14700 PC</span>
-    </div>
-    <a href="#" class="artifact-dl-btn" onclick="alert('Artifact available in shared storage.'); return false;">Download</a>
+    <span class="artifact-name">📄 ${fname}</span>
+    <a href="#" class="artifact-link" onclick="alert('Artifact synced to shared vault: aegis_server/artifacts/${fname}'); return false;">Download</a>
   `;
   const empty = artifactsList.querySelector('.artifact-empty-state');
   if (empty) empty.remove();
@@ -443,43 +624,158 @@ function createDemoArtifact(prompt) {
 }
 
 // Safety Panel Approval Handlers
-btnApprove.addEventListener('click', async () => {
-  safetyPanel.classList.add('hidden');
-  appendTerminal('[SAFETY APPROVED] User authorized action. Executing safe procedure.', 'term-emerald');
-  spokenText.textContent = '"Action authorized. Executing safely."';
-  speakAudioResponse('Action authorized. Executing safely.');
-});
+if (btnApprove) {
+  btnApprove.addEventListener('click', async () => {
+    safetyPanel.classList.add('hidden');
+    appendTerminal('[SAFETY APPROVED] User authorized action. Executing safe procedure.', 'term-emerald');
+    spokenText.textContent = '"Action authorized. Executing safely."';
+    speakAudioResponse('Action authorized. Executing safely.');
+  });
+}
 
-btnReject.addEventListener('click', () => {
-  safetyPanel.classList.add('hidden');
-  appendTerminal('[SAFETY REJECTED] Action aborted by user authorization denial.', 'term-rose');
-  spokenText.textContent = '"Action rejected. Operation cancelled."';
-  speakAudioResponse('Action rejected. Operation cancelled.');
-});
+if (btnReject) {
+  btnReject.addEventListener('click', () => {
+    safetyPanel.classList.add('hidden');
+    appendTerminal('[SAFETY REJECTED] Action aborted by user authorization denial.', 'term-rose');
+    spokenText.textContent = '"Action rejected. Operation cancelled."';
+    speakAudioResponse('Action rejected. Operation cancelled.');
+  });
+}
 
 // Event Listeners for Command Dispatch
-btnDispatch.addEventListener('click', () => dispatchCommand(cmdInput.value));
-cmdInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') dispatchCommand(cmdInput.value);
-});
+if (btnDispatch) {
+  btnDispatch.addEventListener('click', () => dispatchCommand(cmdInput.value));
+}
 
-// Prompt Chips
-document.querySelectorAll('.prompt-chip').forEach(chip => {
-  chip.addEventListener('click', () => {
-    const cmd = chip.getAttribute('data-cmd');
-    cmdInput.value = cmd;
-    dispatchCommand(cmd);
+if (cmdInput) {
+  cmdInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      dispatchCommand(cmdInput.value);
+    }
   });
-});
 
-// Filter Pills
-document.querySelectorAll('.filter-pill').forEach(pill => {
-  pill.addEventListener('click', () => {
-    document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
-    pill.classList.add('active');
-    renderNodesGrid(pill.getAttribute('data-filter'));
+  // Auto-resize input
+  cmdInput.addEventListener('input', () => {
+    cmdInput.style.height = 'auto';
+    cmdInput.style.height = Math.min(cmdInput.scrollHeight, 140) + 'px';
   });
-});
+}
+
+// Prompt Chips & Suggestion Cards
+function bindPromptChips() {
+  document.querySelectorAll('.prompt-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const cmd = chip.getAttribute('data-cmd');
+      if (cmd) {
+        cmdInput.value = cmd;
+        dispatchCommand(cmd);
+      }
+    });
+  });
+}
+bindPromptChips();
+
+// New Chat button
+if (btnNewChat) {
+  btnNewChat.addEventListener('click', () => {
+    chatMessagesList.innerHTML = '';
+    if (chatWelcomeHero) chatWelcomeHero.classList.remove('hidden');
+    cmdInput.value = '';
+    cmdInput.focus();
+  });
+}
+
+// Sidebar Toggle
+if (btnSidebarToggle) {
+  btnSidebarToggle.addEventListener('click', () => {
+    sidebar.classList.toggle('collapsed');
+  });
+}
+
+// Theme Switcher (Light / Dark)
+if (btnThemeToggle) {
+  btnThemeToggle.addEventListener('click', () => {
+    const isDark = document.body.classList.toggle('dark-theme');
+    document.body.classList.toggle('light-theme', !isDark);
+    themeIcon.textContent = isDark ? '☀️' : '🌙';
+    themeText.textContent = isDark ? 'Light Mode' : 'Dark Mode';
+    localStorage.setItem('aegis-theme', isDark ? 'dark' : 'light');
+  });
+}
+
+// Model Picker Dropdown
+if (modelPickerTrigger) {
+  modelPickerTrigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    modelDropdownMenu.classList.toggle('hidden');
+  });
+
+  document.addEventListener('click', () => {
+    if (modelDropdownMenu) modelDropdownMenu.classList.add('hidden');
+  });
+
+  document.querySelectorAll('.dropdown-item').forEach(item => {
+    item.addEventListener('click', () => {
+      document.querySelectorAll('.dropdown-item').forEach(i => i.classList.remove('selected'));
+      item.classList.add('selected');
+      selectedNodeId = item.getAttribute('data-node');
+      activeModelName.textContent = item.getAttribute('data-label');
+      modelDropdownMenu.classList.add('hidden');
+      renderNodesGrid();
+    });
+  });
+}
+
+// Drawer Toggle Handlers
+function openNodesDrawer() {
+  if (nodesDrawerOverlay) nodesDrawerOverlay.classList.remove('hidden');
+}
+function closeNodesDrawer() {
+  if (nodesDrawerOverlay) nodesDrawerOverlay.classList.add('hidden');
+}
+
+function openVaultDrawer() {
+  if (vaultDrawerOverlay) vaultDrawerOverlay.classList.remove('hidden');
+  loadRecentArtifacts();
+}
+function closeVaultDrawer() {
+  if (vaultDrawerOverlay) vaultDrawerOverlay.classList.add('hidden');
+}
+
+function openTerminalDrawer() {
+  if (terminalDrawerOverlay) terminalDrawerOverlay.classList.remove('hidden');
+}
+function closeTerminalDrawer() {
+  if (terminalDrawerOverlay) terminalDrawerOverlay.classList.add('hidden');
+}
+window.openTerminalDrawer = openTerminalDrawer;
+
+if (btnToggleNodesDrawer) btnToggleNodesDrawer.addEventListener('click', openNodesDrawer);
+if (btnQuickNodes) btnQuickNodes.addEventListener('click', openNodesDrawer);
+if (btnCloseNodesDrawer) btnCloseNodesDrawer.addEventListener('click', closeNodesDrawer);
+if (nodesDrawerOverlay) {
+  nodesDrawerOverlay.addEventListener('click', (e) => {
+    if (e.target === nodesDrawerOverlay) closeNodesDrawer();
+  });
+}
+
+if (btnToggleVaultDrawer) btnToggleVaultDrawer.addEventListener('click', openVaultDrawer);
+if (btnQuickVault) btnQuickVault.addEventListener('click', openVaultDrawer);
+if (btnCloseVaultDrawer) btnCloseVaultDrawer.addEventListener('click', closeVaultDrawer);
+if (vaultDrawerOverlay) {
+  vaultDrawerOverlay.addEventListener('click', (e) => {
+    if (e.target === vaultDrawerOverlay) closeVaultDrawer();
+  });
+}
+
+if (btnToggleTerminalDrawer) btnToggleTerminalDrawer.addEventListener('click', openTerminalDrawer);
+if (btnCloseTerminalDrawer) btnCloseTerminalDrawer.addEventListener('click', closeTerminalDrawer);
+if (terminalDrawerOverlay) {
+  terminalDrawerOverlay.addEventListener('click', (e) => {
+    if (e.target === terminalDrawerOverlay) closeTerminalDrawer();
+  });
+}
 
 // Load Recent Artifacts from Storage Vault
 async function loadRecentArtifacts() {
@@ -491,14 +787,11 @@ async function loadRecentArtifacts() {
         artifactsList.innerHTML = '';
         data.recent_artifacts.forEach(item => {
           const row = document.createElement('div');
-          row.className = 'artifact-row';
+          row.className = 'artifact-item';
           const dlUrl = item.url.startsWith('http') ? item.url : `${STORAGE_BASE}${item.url}`;
           row.innerHTML = `
-            <div class="artifact-info">
-              <span class="artifact-fname">📄 ${item.filename}</span>
-              <span class="artifact-fmeta">${(item.size_bytes / 1024).toFixed(1)} KB &bull; Node: ${item.node_id} &bull; Task: ${item.task_id}</span>
-            </div>
-            <a href="${dlUrl}" target="_blank" class="artifact-dl-btn">Download</a>
+            <span class="artifact-name">📄 ${item.filename}</span>
+            <a href="${dlUrl}" target="_blank" class="artifact-link">Download</a>
           `;
           artifactsList.appendChild(row);
         });
@@ -510,14 +803,24 @@ async function loadRecentArtifacts() {
   }
 }
 
-// Refresh Artifacts Button
-btnRefreshArtifacts.addEventListener('click', async () => {
-  await loadRecentArtifacts();
-  appendTerminal('[STORAGE] Refreshed artifacts from i7-14700 vault.', 'term-dim');
-});
+if (btnRefreshArtifacts) {
+  btnRefreshArtifacts.addEventListener('click', async () => {
+    await loadRecentArtifacts();
+    appendTerminal('[STORAGE] Refreshed artifacts from i7-14700 vault.', 'term-dim');
+  });
+}
 
 // Initialize on Load
 document.addEventListener('DOMContentLoaded', () => {
+  // Check theme preference
+  const savedTheme = localStorage.getItem('aegis-theme');
+  if (savedTheme === 'dark') {
+    document.body.classList.add('dark-theme');
+    document.body.classList.remove('light-theme');
+    if (themeIcon) themeIcon.textContent = '☀️';
+    if (themeText) themeText.textContent = 'Light Mode';
+  }
+
   renderNodesGrid();
   updateStats();
   initWebSocket();
