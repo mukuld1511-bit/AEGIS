@@ -59,7 +59,7 @@
         <p class="transcript-text" id="spoken-text">"AEGIS cluster online. Ready for your command."</p>
       </div>
 
-      <!-- Live Pipeline & Response Stream Container (Fades in when active) -->
+      <!-- Live Pipeline & Response Stream Container (Active Cluster Distribution Mesh) -->
       <div class="response-card hidden" id="response-card">
         <div class="response-header">
           <div class="response-meta">
@@ -75,6 +75,80 @@
           <div class="step-pill" id="step-2">2. Review</div>
           <div class="step-pill" id="step-3">3. Arch</div>
           <div class="step-pill" id="step-4">4. Security</div>
+        </div>
+
+        <!-- Inter-Node Distribution Mesh Communication Topology -->
+        <div class="mesh-network-container" id="mesh-network-container">
+          <div class="mesh-header">
+            <div class="mesh-title-wrap">
+              <span class="live-mesh-dot"></span>
+              <span class="mesh-title">Inter-Node Distribution Mesh Communication</span>
+            </div>
+            <span class="mesh-speed-tag" id="mesh-throughput-tag">10 GbE &bull; 2.1 ms Latency &bull; Vault Synced</span>
+          </div>
+
+          <svg class="mesh-topology-svg" viewBox="0 0 560 100" id="mesh-topology-svg">
+            <!-- Connecting Beams between Nodes -->
+            <line x1="70" y1="50" x2="200" y2="50" class="mesh-beam" id="link-1-2"></line>
+            <line x1="200" y1="50" x2="340" y2="50" class="mesh-beam" id="link-2-3"></line>
+            <line x1="340" y1="50" x2="480" y2="50" class="mesh-beam" id="link-3-4"></line>
+            <path d="M 70 50 Q 275 92 480 50" class="mesh-vault-beam" id="link-vault"></path>
+
+            <!-- Animated Traveling Data Packet -->
+            <circle cx="70" cy="50" r="4.5" class="data-packet" id="data-packet-particle"></circle>
+
+            <!-- Node 1: Coder -->
+            <g class="mesh-node-group node-1 active" id="mesh-node-1" transform="translate(70, 50)">
+              <circle r="18" class="node-ring"></circle>
+              <circle r="13" class="node-core"></circle>
+              <text y="3" text-anchor="middle" class="node-label">N1</text>
+              <text y="26" text-anchor="middle" class="node-sublabel">Coder (32B)</text>
+            </g>
+
+            <!-- Node 2: QA Reviewer -->
+            <g class="mesh-node-group node-2" id="mesh-node-2" transform="translate(200, 50)">
+              <circle r="18" class="node-ring"></circle>
+              <circle r="13" class="node-core"></circle>
+              <text y="3" text-anchor="middle" class="node-label">N2</text>
+              <text y="26" text-anchor="middle" class="node-sublabel">QA Review (32B)</text>
+            </g>
+
+            <!-- Node 3: Architect -->
+            <g class="mesh-node-group node-3" id="mesh-node-3" transform="translate(340, 50)">
+              <circle r="18" class="node-ring"></circle>
+              <circle r="13" class="node-core"></circle>
+              <text y="3" text-anchor="middle" class="node-label">N3</text>
+              <text y="26" text-anchor="middle" class="node-sublabel">Vision/Arch (90B)</text>
+            </g>
+
+            <!-- Node 4: Security Sentinel -->
+            <g class="mesh-node-group node-4" id="mesh-node-4" transform="translate(480, 50)">
+              <circle r="18" class="node-ring"></circle>
+              <circle r="13" class="node-core"></circle>
+              <text y="3" text-anchor="middle" class="node-label">N4</text>
+              <text y="26" text-anchor="middle" class="node-sublabel">Security (141B)</text>
+            </g>
+          </svg>
+
+          <!-- Live File Payload Transfer Monitor -->
+          <div class="file-transfer-strip" id="file-transfer-strip">
+            <div class="file-transfer-info">
+              <span class="file-transfer-icon">📄</span>
+              <div class="file-meta-col">
+                <div class="file-name-row">
+                  <span class="transfer-filename" id="transfer-filename">dist_kv_cache.py</span>
+                  <span class="transfer-status-tag" id="transfer-status-badge">Streaming: Node 1 ➔ Vault &bull; 14.2 KB</span>
+                </div>
+                <div class="file-progress-track">
+                  <div class="file-progress-bar" id="transfer-progress-bar" style="width: 45%;"></div>
+                </div>
+              </div>
+            </div>
+            <!-- Transferred File Content Preview -->
+            <div class="file-context-preview" id="transfer-code-preview">
+              <code>class DistributedKVCache: async def set(self, key, val, ttl=300)...</code>
+            </div>
+          </div>
         </div>
 
         <div class="response-content" id="response-content">

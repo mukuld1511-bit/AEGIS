@@ -440,6 +440,90 @@ function handleSimulation(prompt) {
   simulateStepperProgression(prompt);
 }
 
+function updateMeshStage(stageIdx) {
+  const nodeIds = ['mesh-node-1', 'mesh-node-2', 'mesh-node-3', 'mesh-node-4'];
+  const linkIds = ['link-1-2', 'link-2-3', 'link-3-4'];
+  const packet = document.getElementById('data-packet-particle');
+  const filenameEl = document.getElementById('transfer-filename');
+  const badgeEl = document.getElementById('transfer-status-badge');
+  const progBar = document.getElementById('transfer-progress-bar');
+  const codePrev = document.getElementById('transfer-code-preview');
+
+  const stageData = [
+    {
+      activeNode: 0,
+      packetX: 135,
+      link: 'link-1-2',
+      file: 'dist_kv_cache.py',
+      badge: 'Sending: Node 1 ➔ Vault &bull; 14.2 KB (Exit 0)',
+      progress: '30%',
+      snippet: '<code>class DistributedKVCache: async def set(self, key, val, ttl=300)...</code>'
+    },
+    {
+      activeNode: 1,
+      packetX: 270,
+      link: 'link-2-3',
+      file: 'test_suite.py',
+      badge: 'Streaming: Node 2 QA ➔ Vault &bull; 18.6 KB (12 Unit Tests Passed)',
+      progress: '60%',
+      snippet: '<code>def test_kv_cache_ttl_expiry(): cache = DistributedKVCache(); assert ...</code>'
+    },
+    {
+      activeNode: 2,
+      packetX: 410,
+      link: 'link-3-4',
+      file: 'architecture_spec.md',
+      badge: 'Streaming: Node 3 Architect ➔ Vault &bull; 9.4 KB (Dataflow Chart)',
+      progress: '85%',
+      snippet: '<code>```mermaid graph LR; N1(Synthesizer)-->N2(QA); N2-->N3(Arch); N3-->N4(Sec);```</code>'
+    },
+    {
+      activeNode: 3,
+      packetX: 480,
+      link: 'link-vault',
+      file: 'hardened_solution.py',
+      badge: 'Certified: Node 4 Security Sentinel ➔ Storage Vault (Memory Safe)',
+      progress: '100%',
+      snippet: '<code># Certified Production Build &bull; Verified Zero Boundary Vulnerabilities</code>'
+    }
+  ];
+
+  if (stageIdx < stageData.length) {
+    const d = stageData[stageIdx];
+
+    // Update Node active/done states
+    nodeIds.forEach((nid, i) => {
+      const nEl = document.getElementById(nid);
+      if (nEl) {
+        nEl.classList.remove('active', 'done');
+        if (i < d.activeNode) nEl.classList.add('done');
+        else if (i === d.activeNode) nEl.classList.add('active');
+      }
+    });
+
+    // Update active beam links
+    linkIds.forEach((lid, i) => {
+      const lEl = document.getElementById(lid);
+      if (lEl) {
+        lEl.classList.remove('active-beam');
+        if (i === stageIdx) lEl.classList.add('active-beam');
+      }
+    });
+
+    // Animate traveling packet
+    if (packet) {
+      packet.classList.add('traveling');
+      packet.setAttribute('cx', d.packetX);
+    }
+
+    // Update file transfer card
+    if (filenameEl) filenameEl.textContent = d.file;
+    if (badgeEl) badgeEl.innerHTML = d.badge;
+    if (progBar) progBar.style.width = d.progress;
+    if (codePrev) codePrev.innerHTML = d.snippet;
+  }
+}
+
 function simulateStepperProgression(prompt) {
   const steps = [
     { id: 'step-1', label: '1. Coder (Done)', content: 'DGX Node 1 completed code synthesis with self-healing verification.' },
@@ -447,6 +531,8 @@ function simulateStepperProgression(prompt) {
     { id: 'step-3', label: '3. Arch (Done)', content: 'DGX Node 3 profiled system dataflow and component diagrams.' },
     { id: 'step-4', label: '4. Security (Done)', content: 'DGX Node 4 certified memory bounds and boundary hardening.' }
   ];
+
+  updateMeshStage(0);
 
   steps.forEach((st, idx) => {
     setTimeout(() => {
@@ -458,8 +544,11 @@ function simulateStepperProgression(prompt) {
       if (idx < steps.length - 1) {
         const nextEl = document.getElementById(steps[idx + 1].id);
         if (nextEl) nextEl.classList.add('active');
+        updateMeshStage(idx + 1);
       } else {
+        updateMeshStage(3);
         taskStatusTag.textContent = 'Certified & Completed';
+        setAllStepsDone();
         responseContent.innerHTML = `
           <p>Full 4-node autonomous cluster pipeline concluded successfully!</p>
           <div style="background: #0f172a; color: #38bdf8; font-family: monospace; font-size: 0.78rem; padding: 0.6rem; border-radius: 6px; margin-top: 6px;">
@@ -469,7 +558,7 @@ function simulateStepperProgression(prompt) {
         `;
         createDemoArtifact(prompt);
       }
-    }, (idx + 1) * 900);
+    }, (idx + 1) * 1100);
   });
 }
 
@@ -480,6 +569,16 @@ function resetStepper() {
       el.className = 'step-pill' + (i === 0 ? ' active' : '');
     }
   });
+  ['mesh-node-1', 'mesh-node-2', 'mesh-node-3', 'mesh-node-4'].forEach((id, i) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.className = 'mesh-node-group node-' + (i + 1) + (i === 0 ? ' active' : '');
+    }
+  });
+  ['link-1-2', 'link-2-3', 'link-3-4'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('active-beam');
+  });
 }
 
 function setAllStepsDone() {
@@ -487,6 +586,12 @@ function setAllStepsDone() {
     const el = document.getElementById(id);
     if (el) el.className = 'step-pill done';
   });
+  ['mesh-node-1', 'mesh-node-2', 'mesh-node-3', 'mesh-node-4'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.className = 'mesh-node-group done';
+  });
+  const vaultLink = document.getElementById('link-vault');
+  if (vaultLink) vaultLink.classList.add('active');
 }
 
 function createDemoArtifact(prompt) {
