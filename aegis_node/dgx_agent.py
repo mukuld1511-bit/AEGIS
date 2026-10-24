@@ -736,14 +736,25 @@ class DynamicIslandWidget(QWidget):
             "font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', sans-serif;"
         )
 
-        # Model Pill Tag (32B / 70B etc.)
+        # Model Pill Tag (32B / 70B / 90B / 141B etc.)
         short_model = "32B"
-        if "70b" in self.active_model.lower():
+        m_lower = self.active_model.lower()
+        if "90b" in m_lower:
+            short_model = "90B"
+        elif "8x22b" in m_lower or "22b" in m_lower:
+            short_model = "141B"
+        elif "72b" in m_lower:
+            short_model = "72B"
+        elif "70b" in m_lower:
             short_model = "70B"
-        elif "16b" in self.active_model.lower():
+        elif "32b" in m_lower:
+            short_model = "32B"
+        elif "16b" in m_lower:
             short_model = "16B"
-        elif "8x22b" in self.active_model.lower():
-            short_model = "22B"
+        elif "14b" in m_lower:
+            short_model = "14B"
+        elif "8b" in m_lower or "7b" in m_lower:
+            short_model = "8B"
         self.lbl_model_pill.setText(short_model)
         self.lbl_model_pill.setStyleSheet(
             f"background: rgba(255, 255, 255, 0.06); color: {p_hex}; border: 1px solid {p_border}; "
@@ -853,7 +864,15 @@ class DynamicIslandWidget(QWidget):
         l2 = QLabel("Model:", self.tab_settings)
         l2.setStyleSheet("color: #cbd5e1; font-size: 10.5px; font-weight: 600;")
         self.cb_model = QComboBox(self.tab_settings)
-        self.cb_model.addItems(["qwen2.5-coder:32b", "llama3.3:70b", "deepseek-coder-v2:16b", "mixtral:8x22b-instruct"])
+        self.FLAGSHIP_MODELS = [
+            "qwen2.5-coder:32b",
+            "llama3.2-vision:90b",
+            "mixtral:8x22b",
+            "llama3.3:70b",
+            "deepseek-r1:70b",
+            "qwen2.5:72b"
+        ]
+        self.cb_model.addItems(self.FLAGSHIP_MODELS)
         self.cb_model.setStyleSheet(
             f"QComboBox {{ background: rgba(19, 23, 34, 0.7); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.12); "
             f"border-radius: 6px; padding: 3px 8px; font-size: 10.5px; min-width: 200px; }} "
@@ -912,10 +931,12 @@ class DynamicIslandWidget(QWidget):
         self.node_switched.emit(nid)
 
     def _on_model_pick(self, idx):
-        models = ["qwen2.5-coder:32b", "llama3.3:70b", "deepseek-coder-v2:16b", "mixtral:8x22b-instruct"]
+        models = getattr(self, "FLAGSHIP_MODELS", ["qwen2.5-coder:32b", "llama3.2-vision:90b", "mixtral:8x22b", "llama3.3:70b"])
         chosen = models[idx] if idx < len(models) else "qwen2.5-coder:32b"
         self.active_model = chosen
         self.model_changed.emit(chosen)
+        self._apply_theme_styles()
+        self.update()
 
     def _toggle_expanded(self):
         if self.state == self.STATE_EXPANDED:
