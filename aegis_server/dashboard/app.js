@@ -812,13 +812,18 @@ if (btnRefreshArtifacts) {
 
 // Initialize on Load
 document.addEventListener('DOMContentLoaded', () => {
-  // Check theme preference
+  // Default to light theme as requested
   const savedTheme = localStorage.getItem('aegis-theme');
   if (savedTheme === 'dark') {
     document.body.classList.add('dark-theme');
     document.body.classList.remove('light-theme');
     if (themeIcon) themeIcon.textContent = '☀️';
     if (themeText) themeText.textContent = 'Light Mode';
+  } else {
+    document.body.classList.remove('dark-theme');
+    document.body.classList.add('light-theme');
+    if (themeIcon) themeIcon.textContent = '🌙';
+    if (themeText) themeText.textContent = 'Dark Mode';
   }
 
   renderNodesGrid();
