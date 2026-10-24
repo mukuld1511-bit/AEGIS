@@ -82,6 +82,12 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Universal Hidden Utility */
+.hidden {
+  display: none !important;
+  pointer-events: none !important;
+}
+
 .minimal-app {
   display: flex;
   flex-direction: column;
@@ -1687,13 +1693,16 @@ html, body {
   background: var(--bg-secondary);
   border-color: var(--border-medium);
 }
-.chat-item-meta {
+.chat-item-meta,
+.chat-history-info {
   flex: 1;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  pointer-events: none; /* Let parent item catch click */
 }
-.chat-item-title {
+.chat-item-title,
+.chat-history-title {
   font-size: 0.78rem;
   font-weight: 600;
   color: var(--text-main);
@@ -1701,7 +1710,8 @@ html, body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.chat-item-time {
+.chat-item-time,
+.chat-history-date {
   font-size: 0.68rem;
   color: var(--text-dim);
   font-family: var(--font-mono);
@@ -1712,13 +1722,15 @@ html, body {
   color: var(--text-dim);
   font-size: 0.72rem;
   cursor: pointer;
-  opacity: 0;
-  padding: 2px 4px;
+  opacity: 0.4;
+  padding: 4px 6px;
   border-radius: 4px;
   transition: opacity 0.15s ease;
+  pointer-events: auto;
+  z-index: 5;
 }
-.chat-history-item:hover .btn-delete-chat { opacity: 0.8; }
-.btn-delete-chat:hover { opacity: 1; color: #e11d48; }
+.chat-history-item:hover .btn-delete-chat { opacity: 0.9; }
+.btn-delete-chat:hover { opacity: 1; color: #e11d48; background: rgba(225, 29, 72, 0.1); }
 
 /* Artifacts Sidebar List */
 .artifacts-sidebar-list {
@@ -1728,34 +1740,42 @@ html, body {
 }
 .artifact-sidebar-item {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 3px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  padding: 0.45rem 0.65rem;
+  padding: 0.5rem 0.65rem;
   cursor: pointer;
+  pointer-events: auto;
   transition: all 0.15s ease;
 }
 .artifact-sidebar-item:hover {
   border-color: #2563eb;
+  background: var(--bg-card-hover);
   transform: translateY(-1px);
 }
-.artifact-col {
+.artifact-sidebar-top {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
 }
+.artifact-sidebar-name,
 .artifact-title {
   font-family: var(--font-mono);
   font-size: 0.76rem;
   font-weight: 700;
   color: var(--text-main);
 }
+.artifact-sidebar-meta,
 .artifact-sub {
   font-size: 0.66rem;
   color: var(--text-dim);
   font-family: var(--font-mono);
+  display: flex;
+  justify-content: space-between;
+  pointer-events: none;
 }
 
 .sidebar-footer {

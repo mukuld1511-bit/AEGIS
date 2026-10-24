@@ -1,6 +1,7 @@
 /**
  * AEGIS - Distributed Systems Mesh Pipeline & Prompt Workbench
- * Deep Features:
+ * Version: 9.5
+ * Core Functionality:
  * 1. Prompt Workbench:
  *    - Collapsible Sidebar with New Chat (+), Previous Chats History, and Artifacts Vault.
  *    - Multi-Turn Conversation Thread (User prompts & Cluster code/text responses).
@@ -195,7 +196,7 @@ graph LR
   N2 -->|RDMA 10GbE| N3[DGX-3: Systems Architect]
   N3 -->|RDMA 10GbE| N4[DGX-4: Security Sentinel]
   N4 --> Vault[(i7-14700 Storage Vault: 100.88.197.6)]
-`````
+\`\`\`
 ### Architecture Contract
 - **Fabric:** Mellanox ConnectX-5 10 GbE Direct RoCEv2
 - **Persistence:** Storage Vault NVMe (100.88.197.6:9080)
@@ -342,7 +343,7 @@ function createNewChatSession(initialTitle = 'New Conversation') {
 }
 
 function deleteChatSession(chatId, e) {
-  if (e) e.stopPropagation();
+  if (e && e.stopPropagation) e.stopPropagation();
   chatSessions = chatSessions.filter(c => c.id !== chatId);
   if (activeChatId === chatId) {
     activeChatId = chatSessions.length > 0 ? chatSessions[0].id : null;
@@ -368,22 +369,36 @@ function renderChatHistory() {
   chatSessions.forEach(session => {
     const item = document.createElement('div');
     item.className = `chat-history-item ${session.id === activeChatId ? 'active' : ''}`;
-    item.onclick = () => {
-      activeChatId = session.id;
-      saveChatSessions();
-      renderChatHistory();
-      loadActiveChat();
-    };
+    item.setAttribute('data-chatid', session.id);
 
     item.innerHTML = `
       <div class="chat-history-info">
         <div class="chat-history-title">${escapeHtml(session.title)}</div>
         <div class="chat-history-date">${session.timestamp || 'Today'} &bull; ${session.messages.length} msgs</div>
       </div>
-      <button class="btn-delete-chat" title="Delete conversation" onclick="deleteChatSession('${session.id}', event)">
+      <button class="btn-delete-chat" title="Delete conversation" type="button">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
       </button>
     `;
+
+    // Item click selects chat
+    item.addEventListener('click', (evt) => {
+      if (evt.target.closest('.btn-delete-chat')) return;
+      activeChatId = session.id;
+      saveChatSessions();
+      renderChatHistory();
+      loadActiveChat();
+    });
+
+    // Delete button click
+    const delBtn = item.querySelector('.btn-delete-chat');
+    if (delBtn) {
+      delBtn.addEventListener('click', (evt) => {
+        evt.stopPropagation();
+        deleteChatSession(session.id, evt);
+      });
+    }
+
     chatHistoryList.appendChild(item);
   });
 }
@@ -418,10 +433,9 @@ function renderArtifactsSidebar() {
   artifactsSidebarList.innerHTML = '';
   if (artifactsBadgeCount) artifactsBadgeCount.textContent = vaultArtifacts.length.toString();
 
-  vaultArtifacts.forEach((art, idx) => {
+  vaultArtifacts.forEach((art) => {
     const item = document.createElement('div');
     item.className = 'artifact-sidebar-item';
-    item.onclick = () => openArtifactModal(art);
     item.innerHTML = `
       <div class="artifact-sidebar-top">
         <span class="artifact-sidebar-name">${escapeHtml(art.name)}</span>
@@ -432,6 +446,9 @@ function renderArtifactsSidebar() {
         <span>${art.time}</span>
       </div>
     `;
+    item.addEventListener('click', () => {
+      openArtifactModal(art);
+    });
     artifactsSidebarList.appendChild(item);
   });
 }
@@ -465,11 +482,20 @@ btnCopyModalArtifact?.addEventListener('click', async () => {
   const code = modalCodeContent ? modalCodeContent.textContent : '';
   if (!code) return;
   try {
-    await navigator.clipboard.writeText(code);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(code);
+    } else {
+      const textarea = document.createElement('textarea');
+      textarea.value = code;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
     btnCopyModalArtifact.textContent = 'Copied!';
     setTimeout(() => {
       if (btnCopyModalArtifact) btnCopyModalArtifact.textContent = 'Copy';
-    }, 2000);
+    }, 1800);
   } catch (err) {}
 });
 
@@ -549,7 +575,7 @@ function appendChatMessage(role, text, code = '', modelName = '⚡ 4-Node Pipeli
     current = chatSessions.find(c => c.id === activeChatId);
   }
 
-  // Update title if first message
+  // Update title if first user prompt
   if (current.messages.length === 0 && role === 'user') {
     current.title = text.slice(0, 32) + (text.length > 32 ? '...' : '');
   }
@@ -597,7 +623,7 @@ function renderMessageToDOM(msg) {
         <div class="msg-code-block">
           <div class="code-block-header">
             <span class="code-lang-tag">python</span>
-            <button class="btn-copy-code" onclick="copySnippetText(this)">Copy Code</button>
+            <button class="btn-copy-code" type="button" onclick="copySnippetText(this)">Copy Code</button>
           </div>
           <pre class="code-pre"><code>${escapeHtml(msg.code)}</code></pre>
         </div>
@@ -616,7 +642,7 @@ function renderMessageToDOM(msg) {
             <span class="time-subtle">${msg.time || ''}</span>
           </div>
           <div class="msg-header-actions">
-            <button class="btn-subtle-action" onclick="downloadSnippetText('${escapeHtml(msg.code || msg.text)}')">Download</button>
+            <button class="btn-subtle-action" type="button" onclick="downloadSnippetFromCard(this)">Download</button>
           </div>
         </div>
         <div class="msg-card-body">
@@ -635,18 +661,31 @@ function scrollThreadToBottom() {
 }
 
 window.copySnippetText = async function(btn) {
-  const codeBlock = btn.closest('.msg-code-block');
-  const code = codeBlock ? codeBlock.querySelector('code')?.textContent : '';
+  const card = btn.closest('.msg-code-block') || btn.closest('.msg-card');
+  const codeEl = card ? card.querySelector('code') : null;
+  const code = codeEl ? codeEl.textContent : '';
   if (!code) return;
   try {
-    await navigator.clipboard.writeText(code);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(code);
+    } else {
+      const textarea = document.createElement('textarea');
+      textarea.value = code;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
     const orig = btn.textContent;
     btn.textContent = 'Copied!';
     setTimeout(() => { btn.textContent = orig; }, 1800);
   } catch (err) {}
 };
 
-window.downloadSnippetText = function(content) {
+window.downloadSnippetFromCard = function(btn) {
+  const card = btn.closest('.msg-card');
+  const codeEl = card ? card.querySelector('.code-pre code') : null;
+  const content = codeEl ? codeEl.textContent : (card ? card.querySelector('.msg-pure-text')?.textContent : '');
   if (!content) return;
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -1054,7 +1093,7 @@ async function dispatchCommand(commandText) {
       return;
     }
   } catch (err) {
-    // Network / Offline fallback simulation
+    // Fallback simulation below
   }
 
   // Fallback direct realistic cluster response
@@ -1101,7 +1140,7 @@ if __name__ == "__main__":
     } else {
       appendChatMessage('assistant', textResult, '', '⚡ DGX Cluster Telemetry');
     }
-  }, 2400);
+  }, 2200);
 }
 
 // ==============================================================================
@@ -1291,20 +1330,26 @@ function renderVaultFiles() {
       <span class="artifact-name">${file.name}</span>
       <span style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim);">${file.size} &bull; ${file.node}</span>
       <div style="display: flex; gap: 8px;">
-        <a href="#" class="artifact-link" onclick="openArtifactModalByName('${file.name}'); return false;">Inspect</a>
-        <a href="#" class="artifact-link" onclick="downloadVaultFile('${file.name}'); return false;">Download</a>
+        <a href="#" class="artifact-link btn-inspect-vault-file">Inspect</a>
+        <a href="#" class="artifact-link btn-dl-vault-file">Download</a>
       </div>
     `;
+    
+    row.querySelector('.btn-inspect-vault-file')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      openArtifactModal(file);
+    });
+
+    row.querySelector('.btn-dl-vault-file')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      downloadVaultFile(file.name);
+    });
+
     vaultFilesTable.appendChild(row);
   });
 }
 
-window.openArtifactModalByName = function(filename) {
-  const art = vaultArtifacts.find(a => a.name === filename);
-  if (art) openArtifactModal(art);
-};
-
-window.downloadVaultFile = function(filename) {
+function downloadVaultFile(filename) {
   const art = vaultArtifacts.find(a => a.name === filename);
   const content = art ? art.content : nodeStages[1].codeSnippet;
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
@@ -1316,7 +1361,7 @@ window.downloadVaultFile = function(filename) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-};
+}
 
 btnRefreshVaultList?.addEventListener('click', renderVaultFiles);
 
@@ -1343,6 +1388,7 @@ cmdInput?.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') dispatchCommand(cmdInput.value);
 });
 
+// Prompt Chips Click Handlers
 document.querySelectorAll('.prompt-chip').forEach(chip => {
   chip.addEventListener('click', () => {
     const cmd = chip.getAttribute('data-cmd');
@@ -1352,6 +1398,15 @@ document.querySelectorAll('.prompt-chip').forEach(chip => {
     }
   });
 });
+
+// Export key functions to window for any inline needs
+window.openArtifactModal = openArtifactModal;
+window.closeArtifactModal = closeArtifactModal;
+window.deleteChatSession = deleteChatSession;
+window.createNewChatSession = createNewChatSession;
+window.setTab = setTab;
+window.dispatchCommand = dispatchCommand;
+window.downloadVaultFile = downloadVaultFile;
 
 // Initial boot
 document.addEventListener('DOMContentLoaded', () => {
