@@ -14,7 +14,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="style.css?v=9.5">
+  <link rel="stylesheet" href="style.css?v=10.0">
   <style>
     svg { max-width: 100%; height: auto; }
     .icon-only-pill svg, .btn-action-pill svg { width: 14px; height: 14px; }
@@ -29,13 +29,19 @@
       <div class="brand-pill">
         <span class="status-dot online"></span>
         <span class="brand-title">AEGIS</span>
-        <span class="cluster-tag">8x DGX &bull; 899B</span>
+        <span class="cluster-tag">AI Studio &bull; 8x DGX Cluster</span>
       </div>
 
-      <!-- Navigation Tabs -->
+      <!-- Navigation: Two Production Portals -->
       <div class="view-switch-pill" id="view-mode-pill">
-        <button class="mode-tab-btn active" id="tab-user-view" data-view="user" title="Interactive Prompt Platform">💬 Prompt</button>
-        <button class="mode-tab-btn" id="tab-operator-view" data-view="operator" title="Distributed Pipeline & Network Mesh">⚡ Cluster Mesh</button>
+        <button class="mode-tab-btn active" id="tab-user-view" data-view="user" title="AI Product Portal for Users">
+          <span>✨ AI Studio</span>
+          <span class="portal-badge-user">Product</span>
+        </button>
+        <button class="mode-tab-btn" id="tab-operator-view" data-view="operator" title="Distributed Cluster Mesh & Infrastructure Console">
+          <span>⚡ Cluster Engine</span>
+          <span class="portal-badge-infra">Behind the Scenes</span>
+        </button>
       </div>
 
       <div class="header-actions">
@@ -307,11 +313,68 @@
           <div class="telemetry-item"><span class="t-k">Storage Vault:</span> <span class="t-v">100.88.197.6:9080 (Synced)</span></div>
         </div>
 
+        <!-- Behind-the-Scenes Architecture Flow Banner -->
+        <div class="behind-the-scenes-banner">
+          <div class="banner-badge">
+            <span>⚙️ WHAT GOES BEHIND THE SCENES: 4-NODE AUTONOMOUS PIPELINE</span>
+          </div>
+          <div class="banner-pipeline-flow">
+            <div class="flow-step">
+              <span class="step-num">1</span>
+              <div class="step-meta">
+                <strong>Intake</strong>
+                <span>Gateway Funnel</span>
+              </div>
+            </div>
+            <span class="flow-arrow">➔</span>
+            <div class="flow-step">
+              <span class="step-num">2</span>
+              <div class="step-meta">
+                <strong>DGX-1 Coder (32B)</strong>
+                <span>Algorithm Synth</span>
+              </div>
+            </div>
+            <span class="flow-arrow">➔</span>
+            <div class="flow-step">
+              <span class="step-num">3</span>
+              <div class="step-meta">
+                <strong>DGX-2 QA (32B)</strong>
+                <span>12 PyTest Suite</span>
+              </div>
+            </div>
+            <span class="flow-arrow">➔</span>
+            <div class="flow-step">
+              <span class="step-num">4</span>
+              <div class="step-meta">
+                <strong>DGX-3 Arch (90B)</strong>
+                <span>Topology Graph</span>
+              </div>
+            </div>
+            <span class="flow-arrow">➔</span>
+            <div class="flow-step">
+              <span class="step-num">5</span>
+              <div class="step-meta">
+                <strong>DGX-4 Sec (141B)</strong>
+                <span>Memory Audit</span>
+              </div>
+            </div>
+            <span class="flow-arrow">➔</span>
+            <div class="flow-step vault">
+              <span class="step-num">6</span>
+              <div class="step-meta">
+                <strong>NVMe Vault</strong>
+                <span>Production Sync</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- 4-Node Pipeline Live Workload Cards: Kisme Kitna aur Kya Kaam Chl Rha H -->
         <div class="section-headline-row">
-          <span class="section-headline">4-Node Pipeline Workload Status</span>
+          <span class="section-headline">Active Distributed Workloads</span>
           <div class="pipeline-actions-row">
-            <button class="btn-mesh-action active-run" id="btn-trigger-pipeline">▶ Run 4-Node Pipeline</button>
+            <button class="btn-mesh-action back-to-user-btn" id="btn-back-to-user">← Back to AI Studio</button>
+            <button class="btn-mesh-action active-run" id="btn-trigger-pipeline">▶ Run Demo Pipeline</button>
             <button class="btn-mesh-action" id="btn-ping-mesh">⚡ Probe RDMA Mesh</button>
           </div>
         </div>
@@ -576,6 +639,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=9.5"></script>
+  <script src="app.js?v=10.0"></script>
 </body>
 </html>

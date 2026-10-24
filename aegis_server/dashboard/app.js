@@ -642,6 +642,9 @@ function renderMessageToDOM(msg) {
             <span class="time-subtle">${msg.time || ''}</span>
           </div>
           <div class="msg-header-actions">
+            <button class="btn-view-cluster-link" type="button" onclick="setTab('operator')" title="Inspect behind-the-scenes cluster workloads & signals">
+              <span>⚡ View in Cluster Engine</span>
+            </button>
             <button class="btn-subtle-action" type="button" onclick="downloadSnippetFromCard(this)">Download</button>
           </div>
         </div>
@@ -719,6 +722,7 @@ function setTab(tab) {
 
 tabUserView?.addEventListener('click', () => setTab('user'));
 tabOperatorView?.addEventListener('click', () => setTab('operator'));
+document.getElementById('btn-back-to-user')?.addEventListener('click', () => setTab('user'));
 
 // Sidebar Tabs: Chats vs Artifacts
 tabSidebarChats?.addEventListener('click', () => {
