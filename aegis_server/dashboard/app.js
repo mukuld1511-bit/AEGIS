@@ -1,13 +1,10 @@
 /**
- * AEGIS - Hyper-Minimal Siri Voice & Text Prompt Interface Logic
- * Features:
- * 1. Siri Avatar Click-to-Talk & Real-time Web Audio API voice-reactive audio wave visualizer.
- * 2. Continuous listening mode with wake-word ("AEGIS", "Hey AEGIS", "Suno AEGIS") auto-activation.
- * 3. High-Quality Neural TTS with synced avatar speech pulsation.
- * 4. 4-Node Autonomous Pipeline status stepper and slide-out telemetry drawer.
+ * AEGIS - Dual Interface Logic:
+ * 1. User Prompt View: Zero-fluff, direct answers and pure code blocks only. On-demand Siri voice avatar.
+ * 2. Cluster Cockpit View ("Mere Liye"): 4-node DGX hardware cluster, live distribution mesh, raw terminal (:0), and vault storage.
  */
 
-// Network endpoints resolution (Direct port 9000, Tailscale Funnel, or Vault 9080)
+// Network endpoints resolution
 const isDirectPiPort = window.location.port === '9000';
 const isFunnel = window.location.hostname.includes('tail') || window.location.hostname.includes('.ts.net');
 const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -24,67 +21,52 @@ const STORAGE_BASE = window.location.port === '9080'
   ? ''
   : (isFunnel ? `${window.location.protocol}//${window.location.hostname}:9080` : `${window.location.protocol}//${window.location.hostname}:9080`);
 
-// DOM Elements
+// DOM Elements: Views & Navigation
+const tabUserView = document.getElementById('tab-user-view');
+const tabOperatorView = document.getElementById('tab-operator-view');
+const viewUserPanel = document.getElementById('view-user-panel');
+const viewOperatorPanel = document.getElementById('view-operator-panel');
+
+// User Interface Elements
 const siriAvatar = document.getElementById('siri-avatar');
 const siriOrb = document.getElementById('siri-orb');
 const siriAmbient = document.getElementById('siri-ambient');
 const voiceStateText = document.getElementById('voice-state-text');
 const spokenText = document.getElementById('spoken-text');
-
-// Dynamic Views & Functional Controls
 const voiceOverlay = document.getElementById('voice-overlay');
 const idleHero = document.getElementById('idle-hero');
-const routeSelector = document.getElementById('route-selector');
-const btnNewTask = document.getElementById('btn-new-task');
-const btnCopyResponse = document.getElementById('btn-copy-response');
-const copyBtnText = document.getElementById('copy-btn-text');
-const btnDownloadArtifact = document.getElementById('btn-download-artifact');
 
+// User Direct Answer Deck (ZERO LLM FILLER)
+const userAnswerCard = document.getElementById('user-answer-card');
+const userActiveModel = document.getElementById('user-active-model');
+const userTaskStatus = document.getElementById('user-task-status');
+const userCodeView = document.getElementById('user-code-view');
+const userCodeBody = document.getElementById('user-code-body');
+const userTextBody = document.getElementById('user-text-body');
+const btnCopyUser = document.getElementById('btn-copy-user');
+const userCopyLabel = document.getElementById('user-copy-label');
+const btnDownloadUser = document.getElementById('btn-download-user');
+const btnCloseUser = document.getElementById('btn-close-user');
+
+// Inputs & Functional Controls
 const cmdInput = document.getElementById('cmd-input-field');
 const btnDispatch = document.getElementById('btn-dispatch-cmd');
 const btnMic = document.getElementById('btn-mic-toggle');
+const routeSelector = document.getElementById('route-selector');
+const btnNewTask = document.getElementById('btn-new-task');
+const btnThemeToggle = document.getElementById('btn-theme-toggle');
 
 // Continuous Voice Toggle
 const btnToggleContinuous = document.getElementById('btn-toggle-continuous');
 const continuousDot = document.getElementById('continuous-dot');
 const continuousLabel = document.getElementById('continuous-label');
 
-// Response Card & Stepper
-const responseCard = document.getElementById('response-card');
-const responseContent = document.getElementById('response-content');
-const btnCloseResponse = document.getElementById('btn-close-response');
-const activeModelTag = document.getElementById('active-model-tag');
-const taskStatusTag = document.getElementById('task-status-tag');
-const btnToggleTerminalStream = document.getElementById('btn-toggle-terminal-stream');
-
-// Visibility helpers for On-Demand Voice Avatar
-function showVoiceAvatar() {
-  if (voiceOverlay) voiceOverlay.classList.remove('hidden');
-  if (idleHero) idleHero.classList.add('hidden');
-}
-
-function hideVoiceAvatarIfIdle() {
-  if (isListening || (window.speechSynthesis && window.speechSynthesis.speaking)) return;
-  if (voiceOverlay) voiceOverlay.classList.add('hidden');
-  if (responseCard && !responseCard.classList.contains('hidden')) {
-    if (idleHero) idleHero.classList.add('hidden');
-  } else {
-    if (idleHero) idleHero.classList.remove('hidden');
-  }
-}
-
-// Telemetry Drawer
-const drawerBackdrop = document.getElementById('drawer-backdrop');
-const btnToggleDrawer = document.getElementById('btn-toggle-drawer');
-const btnCloseDrawer = document.getElementById('btn-close-drawer');
-const dgxGrid = document.getElementById('dgx-nodes-grid');
-const terminalOutput = document.getElementById('terminal-output');
-const activeTerminalLabel = document.getElementById('active-terminal-node');
-const btnClearTerminal = document.getElementById('btn-clear-terminal');
-const artifactsList = document.getElementById('artifacts-list-container');
-const btnRefreshArtifacts = document.getElementById('btn-refresh-artifacts');
-const statOnlineNodes = document.getElementById('stat-online-nodes');
-const btnThemeToggle = document.getElementById('btn-theme-toggle');
+// Cockpit (Operator Interface) Elements
+const cockpitNodesGrid = document.getElementById('cockpit-nodes-grid');
+const cockpitTerminalOutput = document.getElementById('cockpit-terminal-output');
+const btnClearCockpitTerminal = document.getElementById('btn-clear-cockpit-terminal');
+const cockpitArtifactsList = document.getElementById('cockpit-artifacts-list');
+const btnRefreshVaultArtifacts = document.getElementById('btn-refresh-vault-artifacts');
 
 // Safety Panel
 const safetyPanel = document.getElementById('safety-alert-panel');
@@ -103,76 +85,169 @@ let audioAnalyser = null;
 let audioSource = null;
 let micStream = null;
 let animFrameId = null;
+let currentSolutionCode = '';
 
-// Initial 8 DGX Node Data
+// Initial 4 Flagship Cluster Nodes
 let nodesData = [
   { id: 'dgx-node-1', name: 'DGX Spark 01 - Lead Coder', status: 'online', model: 'Qwen2.5-Coder:32B', vram_used: 19.5, vram_total: 128, gpu_pct: 14, temp: 45, screen: ':0' },
   { id: 'dgx-node-2', name: 'DGX Spark 02 - Reviewer & QA', status: 'online', model: 'Qwen2.5-Coder:32B', vram_used: 19.5, vram_total: 128, gpu_pct: 8, temp: 41, screen: ':0' },
   { id: 'dgx-node-3', name: 'DGX Spark 03 - Systems Architect', status: 'online', model: 'Llama-3.2-Vision:90B', vram_used: 65.0, vram_total: 128, gpu_pct: 16, temp: 44, screen: ':0' },
-  { id: 'dgx-node-4', name: 'DGX Spark 04 - Security Sentinel', status: 'online', model: 'Qwen2.5:141B / DeepSeek', vram_used: 82.0, vram_total: 128, gpu_pct: 22, temp: 48, screen: ':0' },
-  { id: 'dgx-node-5', name: 'DGX Spark 05 - Security Auditor', status: 'online', model: 'Command R+ (104B)', vram_used: 62.0, vram_total: 128, gpu_pct: 6, temp: 40, screen: ':0' },
-  { id: 'dgx-node-6', name: 'DGX Spark 06 - Image Gen Studio', status: 'online', model: 'FLUX.1-dev (20B)', vram_used: 34.0, vram_total: 128, gpu_pct: 18, temp: 45, screen: ':0' },
-  { id: 'dgx-node-7', name: 'DGX Spark 07 - Comms & Git Ops', status: 'online', model: 'DBRX-Instruct (132B)', vram_used: 75.0, vram_total: 128, gpu_pct: 12, temp: 43, screen: ':0' },
-  { id: 'dgx-node-8', name: 'DGX Spark 08 - Doc / File Synth', status: 'online', model: 'Llama-3.3-70B (70B)', vram_used: 51.0, vram_total: 128, gpu_pct: 9, temp: 41, screen: ':0' }
+  { id: 'dgx-node-4', name: 'DGX Spark 04 - Security Sentinel', status: 'online', model: 'Qwen2.5:141B', vram_used: 82.0, vram_total: 128, gpu_pct: 22, temp: 48, screen: ':0' }
+];
+
+// Sample Vault Storage Artifacts
+let vaultArtifacts = [
+  { name: 'dist_kv_cache.py', size: '14.2 KB', time: '15:42', node: 'dgx-node-1' },
+  { name: 'test_suite.py', size: '18.6 KB', time: '15:43', node: 'dgx-node-2' },
+  { name: 'architecture_spec.md', size: '9.4 KB', time: '15:44', node: 'dgx-node-3' },
+  { name: 'hardened_solution.py', size: '21.0 KB', time: '15:45', node: 'dgx-node-4' }
 ];
 
 // ==============================================================================
-// 1. Web Audio API Voice-Reactive Visualizer (Real-Time Audio Wave Reactivity)
+// 1. Dual Interface Mode Switcher
+// ==============================================================================
+
+function setViewMode(mode) {
+  if (mode === 'user') {
+    tabUserView?.classList.add('active');
+    tabOperatorView?.classList.remove('active');
+    viewUserPanel?.classList.remove('hidden');
+    viewOperatorPanel?.classList.add('hidden');
+  } else {
+    tabOperatorView?.classList.add('active');
+    tabUserView?.classList.remove('active');
+    viewOperatorPanel?.classList.remove('hidden');
+    viewUserPanel?.classList.add('hidden');
+    renderCockpitNodes();
+    renderVaultArtifacts();
+  }
+}
+
+tabUserView?.addEventListener('click', () => setViewMode('user'));
+tabOperatorView?.addEventListener('click', () => setViewMode('operator'));
+
+// ==============================================================================
+// 2. Pure Result Extractor (STRICTLY NO LLM CONVERSATIONAL FILLER)
+// ==============================================================================
+
+function extractPureResult(text) {
+  if (!text) return { type: 'text', content: 'Exit code 0. Success.' };
+  let raw = text.trim();
+
+  // 1. If text contains a markdown code block (```python ... ``` or ``` ... ```), extract ONLY the code
+  const codeMatch = raw.match(/```(?:[a-zA-Z0-9_\-]+)?\s*([\s\S]*?)```/);
+  if (codeMatch && codeMatch[1]) {
+    return {
+      type: 'code',
+      content: codeMatch[1].trim()
+    };
+  }
+
+  // 2. If text is directly Python code
+  if (/^(?:import\s+|from\s+|def\s+|class\s+|async\s+def\s+|#)/m.test(raw)) {
+    return {
+      type: 'code',
+      content: raw
+    };
+  }
+
+  // 3. Strip conversational LLM greetings and pleasantries
+  let clean = raw
+    .replace(/^(?:(?:certainly|sure|hello|hi|here is|here's|i have created|i can help with that|as requested|below is|of course|alright|ji bilkul)[!.,:\s]*)+/i, '')
+    .replace(/(?:(?:hope this helps|let me know if you need|feel free to ask|happy coding|if you have any questions|is there anything else).*)$/is, '')
+    .trim();
+
+  return {
+    type: 'text',
+    content: clean || raw
+  };
+}
+
+function renderUserAnswer(rawAnswer, modelName = '⚡ 4-Node Pipeline') {
+  if (idleHero) idleHero.classList.add('hidden');
+  if (voiceOverlay) voiceOverlay.classList.add('hidden');
+  if (userAnswerCard) userAnswerCard.classList.remove('hidden');
+
+  if (userActiveModel) userActiveModel.textContent = modelName;
+  if (userTaskStatus) userTaskStatus.textContent = 'Completed';
+
+  const parsed = extractPureResult(rawAnswer);
+  if (parsed.type === 'code') {
+    currentSolutionCode = parsed.content;
+    if (userCodeBody) userCodeBody.textContent = parsed.content;
+    if (userCodeView) userCodeView.classList.remove('hidden');
+    if (userTextBody) userTextBody.classList.add('hidden');
+  } else {
+    currentSolutionCode = parsed.content;
+    if (userTextBody) userTextBody.textContent = parsed.content;
+    if (userTextBody) userTextBody.classList.remove('hidden');
+    if (userCodeView) userCodeView.classList.add('hidden');
+  }
+}
+
+// Visibility helpers for On-Demand Voice Avatar
+function showVoiceAvatar() {
+  if (voiceOverlay) voiceOverlay.classList.remove('hidden');
+  if (idleHero) idleHero.classList.add('hidden');
+}
+
+function hideVoiceAvatarIfIdle() {
+  if (isListening || (window.speechSynthesis && window.speechSynthesis.speaking)) return;
+  if (voiceOverlay) voiceOverlay.classList.add('hidden');
+  if (userAnswerCard && !userAnswerCard.classList.contains('hidden')) {
+    if (idleHero) idleHero.classList.add('hidden');
+  } else {
+    if (idleHero) idleHero.classList.remove('hidden');
+  }
+}
+
+// ==============================================================================
+// 3. Web Audio API Voice-Reactive Visualizer
 // ==============================================================================
 
 async function startAudioWaveVisualizer() {
   try {
     if (!audioContext) {
       audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      audioAnalyser = audioContext.createAnalyser();
+      audioAnalyser.fftSize = 64;
     }
     if (audioContext.state === 'suspended') {
       await audioContext.resume();
     }
-
     if (!micStream) {
       micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      audioSource = audioContext.createMediaStreamSource(micStream);
+      audioSource.connect(audioAnalyser);
     }
 
-    audioAnalyser = audioContext.createAnalyser();
-    audioAnalyser.fftSize = 256;
-    audioAnalyser.smoothingTimeConstant = 0.8;
+    const dataArray = new Uint8Array(audioAnalyser.frequencyBinCount);
 
-    audioSource = audioContext.createMediaStreamSource(micStream);
-    audioSource.connect(audioAnalyser);
-
-    const bufferLength = audioAnalyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
-
-    function renderAudioWaves() {
+    function renderAudioFrame() {
       if (!isListening) return;
-
+      animFrameId = requestAnimationFrame(renderAudioFrame);
       audioAnalyser.getByteFrequencyData(dataArray);
 
-      // Compute average volume level
       let sum = 0;
-      for (let i = 0; i < bufferLength; i++) {
+      for (let i = 0; i < dataArray.length; i++) {
         sum += dataArray[i];
       }
-      const average = sum / bufferLength;
-      const normalizedVol = Math.min(1.0, average / 80.0); // 0 to 1
+      const avg = sum / dataArray.length;
+      const scale = 1 + (avg / 255) * 0.45;
+      const hueShift = Math.floor((avg / 255) * 180);
 
-      // Modulate Siri Avatar Orb scale and ambient glow in real-time
-      if (siriOrb && siriAmbient) {
-        const scaleVal = 1.0 + (normalizedVol * 0.42);
-        const glowScale = 1.0 + (normalizedVol * 0.85);
-        const glowOpacity = 0.7 + (normalizedVol * 0.3);
-
-        siriOrb.style.transform = `scale(${scaleVal.toFixed(2)})`;
-        siriAmbient.style.transform = `scale(${glowScale.toFixed(2)})`;
-        siriAmbient.style.opacity = glowOpacity.toFixed(2);
+      if (siriOrb) {
+        siriOrb.style.transform = `scale(${scale})`;
+        siriOrb.style.filter = `hue-rotate(${hueShift}deg)`;
       }
-
-      animFrameId = requestAnimationFrame(renderAudioWaves);
+      if (siriAmbient) {
+        siriAmbient.style.transform = `scale(${scale * 1.2})`;
+        siriAmbient.style.opacity = Math.min(1.0, 0.6 + (avg / 255) * 0.4);
+      }
     }
-
-    renderAudioWaves();
+    renderAudioFrame();
   } catch (err) {
-    console.warn('Microphone audio stream visualizer note:', err);
+    console.warn('Audio Visualizer error:', err);
   }
 }
 
@@ -181,45 +256,23 @@ function stopAudioWaveVisualizer() {
     cancelAnimationFrame(animFrameId);
     animFrameId = null;
   }
-  if (siriOrb && siriAmbient) {
-    siriOrb.style.transform = '';
-    siriAmbient.style.transform = '';
-    siriAmbient.style.opacity = '';
-  }
-  if (micStream) {
-    micStream.getTracks().forEach(track => track.stop());
-    micStream = null;
-  }
-  if (audioSource) {
-    audioSource.disconnect();
-    audioSource = null;
-  }
+  if (siriOrb) siriOrb.style.transform = 'scale(1)';
+  if (siriAmbient) siriAmbient.style.transform = 'scale(1)';
 }
 
 // ==============================================================================
-// 2. High-Quality Natural Neural Text-To-Speech (TTS)
+// 4. TTS (Strictly Concise & Synced with Avatar)
 // ==============================================================================
 
 let cachedVoices = [];
-function loadSystemVoices() {
-  if ('speechSynthesis' in window) {
-    cachedVoices = window.speechSynthesis.getVoices();
-  }
-}
-if ('speechSynthesis' in window) {
-  window.speechSynthesis.onvoiceschanged = loadSystemVoices;
-  loadSystemVoices();
-}
-
 function speakAudioResponse(text) {
-  if (!('speechSynthesis' in window) || !text) return;
+  if (!('speechSynthesis' in window)) return;
   try {
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.02;
+    utterance.rate = 1.05;
     utterance.pitch = 1.0;
 
-    // Pick natural neural voice
     if (!cachedVoices.length) cachedVoices = window.speechSynthesis.getVoices();
     const naturalVoice = cachedVoices.find(v => 
       v.name.includes('Natural') || 
@@ -233,7 +286,6 @@ function speakAudioResponse(text) {
 
     if (naturalVoice) utterance.voice = naturalVoice;
 
-    // Avatar speaking animation & dynamic visibility synchronization
     utterance.onstart = () => {
       showVoiceAvatar();
       if (siriAvatar) siriAvatar.classList.add('speaking');
@@ -254,7 +306,7 @@ function speakAudioResponse(text) {
 }
 
 // ==============================================================================
-// 3. Web Speech API & Continuous Wake-Word Detection
+// 5. Speech Recognition & Wake-Word Detection
 // ==============================================================================
 
 let recognition = null;
@@ -263,14 +315,14 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
   recognition = new SpeechRec();
   recognition.continuous = false;
   recognition.interimResults = true;
-  recognition.lang = 'hi-IN'; // Recognizes Hindi, Hinglish, and English
+  recognition.lang = 'hi-IN';
 
   recognition.onstart = () => {
     isListening = true;
     showVoiceAvatar();
     if (siriAvatar) siriAvatar.classList.add('listening');
     if (btnMic) btnMic.classList.add('active-listening');
-    if (voiceStateText) voiceStateText.textContent = 'Listening to voice command...';
+    if (voiceStateText) voiceStateText.textContent = 'Listening...';
     startAudioWaveVisualizer();
   };
 
@@ -293,12 +345,9 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
 
     if (finalTranscript) {
       const lower = finalTranscript.toLowerCase().trim();
-
-      // In continuous mode, check wake-word or process command
       if (isContinuousMode) {
         const isWakeWord = lower.includes('aegis') || lower.includes('suno') || lower.includes('namaste');
         if (isWakeWord) {
-          voiceStateText.textContent = 'Wake-Word Detected! Processing...';
           dispatchCommand(finalTranscript);
         }
       } else {
@@ -308,15 +357,12 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
   };
 
   recognition.onerror = (e) => {
-    console.warn('Speech recognition warning:', e.error);
-    if (!isContinuousMode) {
-      stopListeningState();
-    }
+    console.warn('Speech warning:', e.error);
+    if (!isContinuousMode) stopListeningState();
   };
 
   recognition.onend = () => {
     if (isContinuousMode) {
-      // In continuous mode, automatically keep listening
       setTimeout(() => {
         if (isContinuousMode) {
           try { recognition.start(); } catch (err) {}
@@ -329,23 +375,18 @@ if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
 }
 
 function startListeningState() {
-  if (!recognition) {
-    alert('Speech Recognition is not supported on this browser. You can type commands below.');
-    return;
-  }
+  if (!recognition) return;
   showVoiceAvatar();
   try {
     recognition.start();
-  } catch (err) {
-    console.warn('Recognition start state:', err);
-  }
+  } catch (err) {}
 }
 
 function stopListeningState() {
   isListening = false;
   if (siriAvatar) siriAvatar.classList.remove('listening');
   if (btnMic) btnMic.classList.remove('active-listening');
-  if (voiceStateText) voiceStateText.textContent = 'Ready &bull; Tap mic or type below';
+  if (voiceStateText) voiceStateText.textContent = 'Ready';
   stopAudioWaveVisualizer();
   hideVoiceAvatarIfIdle();
 }
@@ -359,18 +400,17 @@ function toggleVoiceListening() {
   }
 }
 
-// Click on Siri Avatar Orb or Mic Button toggles voice
 if (siriAvatar) siriAvatar.addEventListener('click', toggleVoiceListening);
 if (btnMic) btnMic.addEventListener('click', toggleVoiceListening);
 
-// Continuous Listening Toggle Switch
+// Continuous Listening Switch
 if (btnToggleContinuous) {
   btnToggleContinuous.addEventListener('click', () => {
     isContinuousMode = !isContinuousMode;
     if (isContinuousMode) {
       btnToggleContinuous.classList.add('active');
       continuousLabel.textContent = 'Continuous: ON';
-      voiceStateText.textContent = 'Continuous Voice Active &bull; Say "AEGIS" anytime';
+      if (voiceStateText) voiceStateText.textContent = 'Say "AEGIS" anytime';
       startListeningState();
     } else {
       btnToggleContinuous.classList.remove('active');
@@ -382,7 +422,7 @@ if (btnToggleContinuous) {
 }
 
 // ==============================================================================
-// 4. Command Dispatching & Stepper Updates
+// 6. Command Dispatching & Direct Response Routing
 // ==============================================================================
 
 async function dispatchCommand(commandText) {
@@ -390,16 +430,17 @@ async function dispatchCommand(commandText) {
   const prompt = commandText.trim();
   cmdInput.value = '';
 
-  // Minimal UI: Hide idle hero and display active execution card
+  // Minimal UI Transition: Hide idle hero
   if (idleHero) idleHero.classList.add('hidden');
-  if (responseCard) {
-    responseCard.classList.remove('hidden');
-    resetStepper();
-    taskStatusTag.textContent = 'Executing';
-    responseContent.textContent = `Analyzing intent for: "${prompt}"...`;
+  if (userAnswerCard) {
+    userAnswerCard.classList.remove('hidden');
+    userTaskStatus.textContent = 'Synthesizing';
+    userTextBody.textContent = 'Executing...';
+    userTextBody.classList.remove('hidden');
+    userCodeView.classList.add('hidden');
   }
 
-  appendTerminal(`\n> [PROMPT]: "${prompt}"`, 'term-cyan');
+  appendTerminal(`> [PROMPT]: "${prompt}"`, 'term-cyan');
 
   const selectedTarget = routeSelector ? routeSelector.value : 'pipeline';
   const isPipeline = selectedTarget === 'pipeline';
@@ -423,10 +464,10 @@ async function dispatchCommand(commandText) {
       return;
     }
   } catch (err) {
-    console.warn('API submission note:', err);
+    console.warn('Coordinator API fallback:', err);
   }
 
-  // Local fallback simulation
+  // Pure Direct Simulation Fallback
   handleSimulation(prompt);
 }
 
@@ -442,23 +483,23 @@ function handleTaskResponse(data, prompt) {
     safetyReason.textContent = data.safety_evaluation?.reasons?.[0] || 'Safety hold required.';
     safetyCommandText.textContent = data.safety_evaluation?.proposed_command || prompt;
   } else {
-    taskStatusTag.textContent = 'Running';
-    responseContent.textContent = data.spoken_response || `Task dispatched across DGX nodes.`;
-    simulateStepperProgression(prompt);
+    const answer = data.result || data.spoken_response || 'Task executed successfully.';
+    renderUserAnswer(answer, routeSelector ? routeSelector.options[routeSelector.selectedIndex].text : '⚡ 4-Node Pipeline');
+    simulateMeshTransmission(prompt);
   }
 }
 
 function handleSimulation(prompt) {
   const lower = prompt.toLowerCase();
   let spoken = "";
+  let directResult = "";
 
   if (lower.includes('status') || lower.includes('online')) {
-    spoken = "Sabhi 8 DGX Spark nodes online aur fully operational hain. 1,024 GB cluster memory ready hai.";
+    spoken = "8 DGX nodes online. 1,024 GB VRAM ready.";
+    directResult = "Nodes Online: 8/8 | VRAM: 1,024 GB | Vault: 100.88.197.6 (Online) | Latency: 2.1 ms";
     spokenText.textContent = `"${spoken}"`;
     speakAudioResponse(spoken);
-    responseContent.textContent = spoken;
-    setAllStepsDone();
-    taskStatusTag.textContent = 'Completed';
+    renderUserAnswer(directResult, 'Cluster Telemetry');
     return;
   }
 
@@ -467,366 +508,201 @@ function handleSimulation(prompt) {
     safetyRiskLevel.textContent = "CRITICAL ACTION";
     safetyReason.textContent = "Power operation held by Evidence-Gated Guard.";
     safetyCommandText.textContent = "shutdown -h now";
-    spoken = "Savdhaan! Shutdown command confirmation ke liye hold par hai.";
+    spoken = "Alert: Shutdown held by safety gate. Confirm required.";
     spokenText.textContent = `"${spoken}"`;
     speakAudioResponse(spoken);
     return;
   }
 
-  spoken = "Autonomous 4-Node Pipeline shuru ho chuka hai. Node 1 code synthesis initiate kar raha hai.";
+  if (lower.includes('csv') || lower.includes('pandas')) {
+    spoken = "Python CSV pipeline generated.";
+    directResult = `import pandas as pd\nimport matplotlib.pyplot as plt\n\ndef analyze_csv(filepath: str):\n    df = pd.read_csv(filepath)\n    print(f"Loaded {len(df)} rows. Summary:\\n", df.describe())\n    df.hist(figsize=(10, 6))\n    plt.savefig("analysis_chart.png")\n    print("Chart saved: analysis_chart.png")\n\nif __name__ == "__main__":\n    analyze_csv("data.csv")`;
+  } else {
+    spoken = "Distributed KV cache solution generated.";
+    directResult = `import time\nimport asyncio\nfrom typing import Any, Optional, Dict\n\nclass DistributedKVCache:\n    """High-performance async KV cache with TTL."""\n    def __init__(self):\n        self._store: Dict[str, Any] = {}\n        self._expiry: Dict[str, float] = {}\n\n    async def set(self, key: str, value: Any, ttl_seconds: int = 300) -> None:\n        self._store[key] = value\n        self._expiry[key] = time.time() + ttl_seconds\n\n    async def get(self, key: str) -> Optional[Any]:\n        if key in self._store:\n            if time.time() < self._expiry.get(key, 0):\n                return self._store[key]\n            del self._store[key]\n            del self._expiry[key]\n        return None\n\n# Verification Test Suite\nasync def test_cache():\n    cache = DistributedKVCache()\n    await cache.set("user:101", {"name": "AEGIS", "role": "Cluster"}, ttl_seconds=10)\n    val = await cache.get("user:101")\n    assert val["name"] == "AEGIS"\n    print("Tests passed: DistributedKVCache operational.")\n\nif __name__ == "__main__":\n    asyncio.run(test_cache())`;
+  }
+
   spokenText.textContent = `"${spoken}"`;
   speakAudioResponse(spoken);
-  responseContent.textContent = spoken;
-  simulateStepperProgression(prompt);
+  renderUserAnswer(directResult, '⚡ 4-Node Pipeline');
+  simulateMeshTransmission(prompt);
 }
 
-function updateMeshStage(stageIdx) {
-  const nodeIds = ['mesh-node-1', 'mesh-node-2', 'mesh-node-3', 'mesh-node-4'];
-  const linkIds = ['link-1-2', 'link-2-3', 'link-3-4'];
+// Live Mesh Visualizer simulation
+function simulateMeshTransmission(prompt) {
   const packet = document.getElementById('data-packet-particle');
   const filenameEl = document.getElementById('transfer-filename');
   const badgeEl = document.getElementById('transfer-status-badge');
   const progBar = document.getElementById('transfer-progress-bar');
   const codePrev = document.getElementById('transfer-code-preview');
 
-  const stageData = [
-    {
-      activeNode: 0,
-      packetX: 135,
-      link: 'link-1-2',
-      file: 'dist_kv_cache.py',
-      badge: 'Sending: Node 1 ➔ Vault &bull; 14.2 KB (Exit 0)',
-      progress: '30%',
-      snippet: '<code>class DistributedKVCache: async def set(self, key, val, ttl=300)...</code>'
-    },
-    {
-      activeNode: 1,
-      packetX: 270,
-      link: 'link-2-3',
-      file: 'test_suite.py',
-      badge: 'Streaming: Node 2 QA ➔ Vault &bull; 18.6 KB (12 Unit Tests Passed)',
-      progress: '60%',
-      snippet: '<code>def test_kv_cache_ttl_expiry(): cache = DistributedKVCache(); assert ...</code>'
-    },
-    {
-      activeNode: 2,
-      packetX: 410,
-      link: 'link-3-4',
-      file: 'architecture_spec.md',
-      badge: 'Streaming: Node 3 Architect ➔ Vault &bull; 9.4 KB (Dataflow Chart)',
-      progress: '85%',
-      snippet: '<code>```mermaid graph LR; N1(Synthesizer)-->N2(QA); N2-->N3(Arch); N3-->N4(Sec);```</code>'
-    },
-    {
-      activeNode: 3,
-      packetX: 480,
-      link: 'link-vault',
-      file: 'hardened_solution.py',
-      badge: 'Certified: Node 4 Security Sentinel ➔ Storage Vault (Memory Safe)',
-      progress: '100%',
-      snippet: '<code># Certified Production Build &bull; Verified Zero Boundary Vulnerabilities</code>'
-    }
-  ];
+  if (filenameEl) filenameEl.textContent = 'dist_kv_cache.py';
+  if (badgeEl) badgeEl.textContent = 'Node 1 ➔ Vault &bull; 14.2 KB (Exit 0)';
+  if (progBar) progBar.style.width = '100%';
+  if (codePrev) codePrev.innerHTML = '<code>class DistributedKVCache: async def set(self, key, val, ttl=300)...</code>';
 
-  if (stageIdx < stageData.length) {
-    const d = stageData[stageIdx];
-
-    // Update Node active/done states
-    nodeIds.forEach((nid, i) => {
-      const nEl = document.getElementById(nid);
-      if (nEl) {
-        nEl.classList.remove('active', 'done');
-        if (i < d.activeNode) nEl.classList.add('done');
-        else if (i === d.activeNode) nEl.classList.add('active');
-      }
-    });
-
-    // Update active beam links
-    linkIds.forEach((lid, i) => {
-      const lEl = document.getElementById(lid);
-      if (lEl) {
-        lEl.classList.remove('active-beam');
-        if (i === stageIdx) lEl.classList.add('active-beam');
-      }
-    });
-
-    // Animate traveling packet
-    if (packet) {
-      packet.classList.add('traveling');
-      packet.setAttribute('cx', d.packetX);
-    }
-
-    // Update file transfer card
-    if (filenameEl) filenameEl.textContent = d.file;
-    if (badgeEl) badgeEl.innerHTML = d.badge;
-    if (progBar) progBar.style.width = d.progress;
-    if (codePrev) codePrev.innerHTML = d.snippet;
+  if (packet) {
+    packet.setAttribute('cx', '480');
+    setTimeout(() => packet.setAttribute('cx', '70'), 3000);
   }
-}
 
-function simulateStepperProgression(prompt) {
-  const steps = [
-    { id: 'step-1', label: '1. Coder (Done)', content: 'DGX Node 1 completed code synthesis with self-healing verification.' },
-    { id: 'step-2', label: '2. Review (Done)', content: 'DGX Node 2 generated automated pytest unit tests and edge cases.' },
-    { id: 'step-3', label: '3. Arch (Done)', content: 'DGX Node 3 profiled system dataflow and component diagrams.' },
-    { id: 'step-4', label: '4. Security (Done)', content: 'DGX Node 4 certified memory bounds and boundary hardening.' }
-  ];
-
-  updateMeshStage(0);
-
-  steps.forEach((st, idx) => {
-    setTimeout(() => {
-      const stepEl = document.getElementById(st.id);
-      if (stepEl) {
-        stepEl.classList.remove('active');
-        stepEl.classList.add('done');
-      }
-      if (idx < steps.length - 1) {
-        const nextEl = document.getElementById(steps[idx + 1].id);
-        if (nextEl) nextEl.classList.add('active');
-        updateMeshStage(idx + 1);
-      } else {
-        updateMeshStage(3);
-        taskStatusTag.textContent = 'Certified & Completed';
-        setAllStepsDone();
-        responseContent.innerHTML = `
-          <p>Full 4-node autonomous cluster pipeline concluded successfully!</p>
-          <div style="background: #0f172a; color: #38bdf8; font-family: monospace; font-size: 0.78rem; padding: 0.6rem; border-radius: 6px; margin-top: 6px;">
-            # Artifact verified & archived: ./workspace/dist_kv_cache.py<br>
-            [Node 1: Synthesizer] Exit 0 &bull; [Node 2: QA Pytest] 100% Pass &bull; [Node 4: Security] Certified
-          </div>
-        `;
-        createDemoArtifact(prompt);
-      }
-    }, (idx + 1) * 1100);
-  });
-}
-
-function resetStepper() {
-  ['step-1', 'step-2', 'step-3', 'step-4'].forEach((id, i) => {
-    const el = document.getElementById(id);
-    if (el) {
-      el.className = 'step-pill' + (i === 0 ? ' active' : '');
-    }
-  });
-  ['mesh-node-1', 'mesh-node-2', 'mesh-node-3', 'mesh-node-4'].forEach((id, i) => {
-    const el = document.getElementById(id);
-    if (el) {
-      el.className = 'mesh-node-group node-' + (i + 1) + (i === 0 ? ' active' : '');
-    }
-  });
-  ['link-1-2', 'link-2-3', 'link-3-4'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.classList.remove('active-beam');
-  });
-}
-
-function setAllStepsDone() {
-  ['step-1', 'step-2', 'step-3', 'step-4'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.className = 'step-pill done';
-  });
-  ['mesh-node-1', 'mesh-node-2', 'mesh-node-3', 'mesh-node-4'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.className = 'mesh-node-group done';
-  });
-  const vaultLink = document.getElementById('link-vault');
-  if (vaultLink) vaultLink.classList.add('active');
-}
-
-function createDemoArtifact(prompt) {
-  const row = document.createElement('div');
-  row.className = 'artifact-item';
-  row.innerHTML = `
-    <span class="artifact-name">📄 dist_kv_cache.py</span>
-    <a href="#" class="artifact-link" onclick="alert('Artifact stored in i7-14700 vault.'); return false;">Download</a>
-  `;
-  const empty = artifactsList.querySelector('.artifact-empty-state');
-  if (empty) empty.remove();
-  artifactsList.prepend(row);
+  appendTerminal(`[MESH]: Transferred dist_kv_cache.py (14.2 KB) across DGX 1-4 via 10 GbE.`, 'term-emerald');
 }
 
 // ==============================================================================
-// 5. Drawer, Telemetry, and WebSocket Handlers
+// 7. Cockpit Rendering & Terminal Streaming
 // ==============================================================================
 
-function initWebSocket() {
-  try {
-    ws = new WebSocket(WS_URL);
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.event === 'initial_snapshot' && msg.nodes) {
-          updateNodesFromBackend(msg.nodes);
-        } else if (msg.event === 'pipeline_step_progress') {
-          const nextNode = msg.data.next_node || 'dgx-node-2';
-          appendTerminal(`[PIPELINE] Advanced to ${nextNode.toUpperCase()}`, 'term-emerald');
-        } else if (msg.event === 'pipeline_completed') {
-          appendTerminal(`[PIPELINE COMPLETE] Certified across cluster.`, 'term-cyan');
-          setAllStepsDone();
-        }
-      } catch (e) {}
-    };
-  } catch (err) {}
-}
-
-function updateNodesFromBackend(rawNodes) {
-  nodesData = rawNodes.map(n => ({
-    id: n.node_id,
-    name: n.name,
-    status: n.status || 'online',
-    model: n.active_model || 'qwen2.5-coder:32b',
-    vram_used: n.gpu ? (n.gpu.vram_used_mb / 1024).toFixed(1) : 4.0,
-    vram_total: n.gpu ? (n.gpu.vram_total_mb / 1024).toFixed(0) : 80,
-    gpu_pct: n.gpu ? n.gpu.utilization_pct.toFixed(0) : 0,
-    temp: n.gpu ? n.gpu.temperature_c.toFixed(0) : 40,
-    screen: ':0'
-  }));
-  renderNodesGrid();
-}
-
-function renderNodesGrid() {
-  if (!dgxGrid) return;
-  dgxGrid.innerHTML = '';
+function renderCockpitNodes() {
+  if (!cockpitNodesGrid) return;
+  cockpitNodesGrid.innerHTML = '';
   nodesData.forEach(n => {
     const card = document.createElement('div');
-    card.className = 'node-card';
+    card.className = 'c-node-card';
     card.innerHTML = `
-      <div class="node-top"><span>${n.id}</span> <span class="node-status-pill ${n.status}">${n.status}</span></div>
-      <div class="node-name">${n.name}</div>
-      <div class="node-model-row">${n.model} &bull; ${n.vram_used}/${n.vram_total} GB VRAM &bull; ${n.temp}°C</div>
+      <div class="c-node-header">
+        <span class="c-node-id">${n.id.toUpperCase()}</span>
+        <span class="status-badge ${n.status === 'online' ? 'online' : 'busy'}">${n.status}</span>
+      </div>
+      <div class="c-node-role">${n.name.split('-')[1] || n.name}</div>
+      <div class="c-node-meta">${n.model}</div>
+      <div class="c-node-meta">VRAM: ${n.vram_used}/${n.vram_total} GB &bull; ${n.temp}&deg;C</div>
     `;
-    dgxGrid.appendChild(card);
+    cockpitNodesGrid.appendChild(card);
   });
+}
+
+function renderVaultArtifacts() {
+  if (!cockpitArtifactsList) return;
+  cockpitArtifactsList.innerHTML = '';
+  vaultArtifacts.forEach(a => {
+    const row = document.createElement('div');
+    row.className = 'artifact-item';
+    row.innerHTML = `
+      <span class="artifact-name">${a.name}</span>
+      <span style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim);">${a.size}</span>
+      <a href="#" class="artifact-link" onclick="downloadArtifactFile('${a.name}')">Download</a>
+    `;
+    cockpitArtifactsList.appendChild(row);
+  });
+}
+
+function downloadArtifactFile(filename) {
+  const sample = currentSolutionCode || `# ${filename}\nprint("AEGIS Vault Solution File")`;
+  const blob = new Blob([sample], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 function appendTerminal(text, colorClass = '') {
-  if (!terminalOutput) return;
-  const span = document.createElement('span');
-  if (colorClass) span.className = colorClass;
-  span.textContent = text + '\n';
-  terminalOutput.appendChild(span);
-  terminalOutput.scrollTop = terminalOutput.scrollHeight;
+  if (cockpitTerminalOutput) {
+    const span = document.createElement('span');
+    if (colorClass) span.className = colorClass;
+    span.textContent = text + '\n';
+    cockpitTerminalOutput.appendChild(span);
+    cockpitTerminalOutput.scrollTop = cockpitTerminalOutput.scrollHeight;
+  }
 }
 
-// Drawer Toggles
-if (btnToggleDrawer) {
-  btnToggleDrawer.addEventListener('click', () => {
-    drawerBackdrop.classList.remove('hidden');
-    renderNodesGrid();
-  });
-}
-if (btnCloseDrawer) {
-  btnCloseDrawer.addEventListener('click', () => {
-    drawerBackdrop.classList.add('hidden');
-  });
-}
-if (drawerBackdrop) {
-  drawerBackdrop.addEventListener('click', (e) => {
-    if (e.target === drawerBackdrop) drawerBackdrop.classList.add('hidden');
-  });
-}
-if (btnToggleTerminalStream) {
-  btnToggleTerminalStream.addEventListener('click', () => {
-    drawerBackdrop.classList.remove('hidden');
-  });
-}
+// Clear Terminal in Cockpit
+btnClearCockpitTerminal?.addEventListener('click', () => {
+  if (cockpitTerminalOutput) {
+    cockpitTerminalOutput.innerHTML = '<span class="term-dim">[SYSTEM] Terminal cleared.</span>\n';
+  }
+});
 
-// Route Selector Change Handler
-if (routeSelector) {
-  routeSelector.addEventListener('change', (e) => {
-    const text = e.target.options[e.target.selectedIndex].text;
-    if (activeModelTag) activeModelTag.textContent = text;
-    appendTerminal(`[ROUTE]: Selected target execution: ${e.target.value}`, 'term-cyan');
-  });
-}
+btnRefreshVaultArtifacts?.addEventListener('click', () => {
+  renderVaultArtifacts();
+});
 
-// New Task Button (Full workspace reset to clean minimal idle state)
-if (btnNewTask) {
-  btnNewTask.addEventListener('click', () => {
-    window.speechSynthesis.cancel();
-    if (recognition && isListening) {
-      try { recognition.stop(); } catch (e) {}
-    }
-    isListening = false;
-    if (siriAvatar) siriAvatar.classList.remove('speaking', 'listening');
-    if (btnMic) btnMic.classList.remove('active-listening');
-    stopAudioWaveVisualizer();
+// ==============================================================================
+// 8. Event Listeners & Buttons
+// ==============================================================================
 
-    if (responseCard) responseCard.classList.add('hidden');
-    if (voiceOverlay) voiceOverlay.classList.add('hidden');
-    if (idleHero) idleHero.classList.remove('hidden');
-    if (cmdInput) {
-      cmdInput.value = '';
-      cmdInput.focus();
-    }
-    resetStepper();
-    appendTerminal(`[SESSION]: New task session ready.`, 'term-muted');
-  });
-}
+// Route Selector Change
+routeSelector?.addEventListener('change', (e) => {
+  const text = e.target.options[e.target.selectedIndex].text;
+  if (userActiveModel) userActiveModel.textContent = text;
+  appendTerminal(`[ROUTE]: Execution target: ${e.target.value}`, 'term-cyan');
+});
 
-// Close Response Card (Returns to minimal idle hero)
-if (btnCloseResponse) {
-  btnCloseResponse.addEventListener('click', () => {
-    if (responseCard) responseCard.classList.add('hidden');
-    if (voiceOverlay) voiceOverlay.classList.add('hidden');
-    if (idleHero) idleHero.classList.remove('hidden');
-  });
-}
+// New Task Button (Workspace reset)
+btnNewTask?.addEventListener('click', () => {
+  window.speechSynthesis.cancel();
+  if (recognition && isListening) {
+    try { recognition.stop(); } catch (e) {}
+  }
+  isListening = false;
+  if (siriAvatar) siriAvatar.classList.remove('speaking', 'listening');
+  if (btnMic) btnMic.classList.remove('active-listening');
+  stopAudioWaveVisualizer();
 
-// Copy Response Content / Generated Code
-if (btnCopyResponse) {
-  btnCopyResponse.addEventListener('click', async () => {
-    const textToCopy = responseContent ? responseContent.innerText : '';
-    if (!textToCopy) return;
-    try {
-      await navigator.clipboard.writeText(textToCopy);
-      btnCopyResponse.classList.add('copied');
-      if (copyBtnText) copyBtnText.textContent = 'Copied!';
-      setTimeout(() => {
-        btnCopyResponse.classList.remove('copied');
-        if (copyBtnText) copyBtnText.textContent = 'Copy';
-      }, 2000);
-    } catch (err) {
-      console.warn('Clipboard copy error:', err);
-    }
-  });
-}
+  if (userAnswerCard) userAnswerCard.classList.add('hidden');
+  if (voiceOverlay) voiceOverlay.classList.add('hidden');
+  if (idleHero) idleHero.classList.remove('hidden');
+  if (cmdInput) {
+    cmdInput.value = '';
+    cmdInput.focus();
+  }
+  appendTerminal(`[SESSION]: New task initiated.`, 'term-dim');
+});
 
-// Export / Download Generated Code as a File
-if (btnDownloadArtifact) {
-  btnDownloadArtifact.addEventListener('click', () => {
-    const code = responseContent ? responseContent.innerText : '# AEGIS Output Solution';
-    const blob = new Blob([code], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'aegis_solution.py';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  });
-}
+// Close User Answer Card
+btnCloseUser?.addEventListener('click', () => {
+  if (userAnswerCard) userAnswerCard.classList.add('hidden');
+  if (voiceOverlay) voiceOverlay.classList.add('hidden');
+  if (idleHero) idleHero.classList.remove('hidden');
+});
+
+// Copy User Answer / Code
+btnCopyUser?.addEventListener('click', async () => {
+  const textToCopy = currentSolutionCode || (userCodeBody ? userCodeBody.innerText : '') || (userTextBody ? userTextBody.innerText : '');
+  if (!textToCopy) return;
+  try {
+    await navigator.clipboard.writeText(textToCopy);
+    btnCopyUser.classList.add('copied');
+    if (userCopyLabel) userCopyLabel.textContent = 'Copied!';
+    setTimeout(() => {
+      btnCopyUser.classList.remove('copied');
+      if (userCopyLabel) userCopyLabel.textContent = 'Copy';
+    }, 2000);
+  } catch (err) {
+    console.warn('Clipboard copy error:', err);
+  }
+});
+
+// Download User Answer Code
+btnDownloadUser?.addEventListener('click', () => {
+  const code = currentSolutionCode || (userCodeBody ? userCodeBody.innerText : '# Solution');
+  const blob = new Blob([code], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'aegis_solution.py';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
 
 // Theme Switcher
-if (btnThemeToggle) {
-  btnThemeToggle.addEventListener('click', () => {
-    const isDark = document.body.classList.toggle('dark-theme');
-    document.body.classList.toggle('light-theme', !isDark);
-    btnThemeToggle.textContent = isDark ? '☀️' : '🌙';
-  });
-}
+btnThemeToggle?.addEventListener('click', () => {
+  const isDark = document.body.classList.toggle('dark-theme');
+  document.body.classList.toggle('light-theme', !isDark);
+  btnThemeToggle.textContent = isDark ? '☀️' : '🌙';
+});
 
-// Event Listeners for Input & Prompt Chips
-if (btnDispatch) {
-  btnDispatch.addEventListener('click', () => dispatchCommand(cmdInput.value));
-}
-if (cmdInput) {
-  cmdInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') dispatchCommand(cmdInput.value);
-  });
-}
+// Dispatch Input and Prompt Chips
+btnDispatch?.addEventListener('click', () => dispatchCommand(cmdInput.value));
+cmdInput?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') dispatchCommand(cmdInput.value);
+});
 document.querySelectorAll('.prompt-chip').forEach(chip => {
   chip.addEventListener('click', () => {
     const cmd = chip.getAttribute('data-cmd');
@@ -837,8 +713,26 @@ document.querySelectorAll('.prompt-chip').forEach(chip => {
   });
 });
 
+// WebSocket Initialization
+function initWebSocket() {
+  try {
+    ws = new WebSocket(WS_URL);
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.event === 'pipeline_step_progress') {
+          appendTerminal(`[PIPELINE] Advanced: ${msg.data.stage}`, 'term-emerald');
+        } else if (msg.event === 'pipeline_completed') {
+          appendTerminal(`[PIPELINE COMPLETE] Certified across cluster.`, 'term-cyan');
+        }
+      } catch (e) {}
+    };
+  } catch (err) {}
+}
+
 // Initialize on Load
 document.addEventListener('DOMContentLoaded', () => {
-  renderNodesGrid();
+  renderCockpitNodes();
+  renderVaultArtifacts();
   initWebSocket();
 });

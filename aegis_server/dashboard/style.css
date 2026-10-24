@@ -977,3 +977,266 @@ html, body {
 .artifact-name { font-family: var(--font-mono); font-weight: 500; }
 .artifact-link { color: var(--accent-blue); text-decoration: none; }
 .artifact-empty-state { font-size: 0.76rem; color: var(--text-dim); text-align: center; padding: 1rem 0; }
+
+/* ==============================================================================
+   Dual Interface Switcher & View Panels
+   ============================================================================== */
+.view-switch-pill {
+  display: flex;
+  align-items: center;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 9999px;
+  padding: 3px;
+  gap: 3px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+}
+
+.mode-tab-btn {
+  background: transparent;
+  border: none;
+  border-radius: 9999px;
+  padding: 0.35rem 0.9rem;
+  font-family: var(--font-body);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  text-shadow: var(--font-shadow-dim);
+}
+
+.mode-tab-btn:hover {
+  color: var(--text-main);
+}
+
+.mode-tab-btn.active {
+  background: var(--bg-primary);
+  color: var(--text-main);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.07);
+  text-shadow: var(--font-shadow-sub);
+}
+
+.view-panel {
+  width: 100%;
+  height: calc(100vh - 65px);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: relative;
+  animation: fadeInView 0.2s ease-out;
+}
+.view-panel.hidden {
+  display: none !important;
+}
+
+@keyframes fadeInView {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* User Direct Answer Deck (NO LLM FILLER) */
+.user-answer-card {
+  width: 100%;
+  max-width: 760px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  padding: 1.25rem 1.4rem;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  animation: slideUpCard 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  max-height: 52vh;
+  overflow-y: auto;
+}
+.user-answer-card.hidden { display: none; }
+
+.user-answer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 0.65rem;
+}
+.user-meta-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.user-clean-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.pure-code-view {
+  background: #090d16;
+  border: 1px solid #1e293b;
+  border-radius: 10px;
+  padding: 1rem;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: #38bdf8;
+  max-height: 38vh;
+  user-select: text;
+}
+.pure-code-view.hidden { display: none; }
+
+.pure-text-view {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--text-main);
+  text-shadow: var(--font-shadow-sub);
+}
+.pure-text-view.hidden { display: none; }
+
+/* ==============================================================================
+   Operator Cockpit View ("Mere Liye" - Raw Cluster Cockpit, Zero Fluff)
+   ============================================================================== */
+.cockpit-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+  max-width: 1020px;
+  margin: 0 auto;
+  height: 100%;
+  overflow-y: auto;
+  padding: 0.75rem 0.5rem 1.5rem;
+}
+
+.cockpit-stats-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 0.6rem 1rem;
+  box-shadow: var(--shadow-soft);
+}
+.c-stat {
+  font-size: 0.76rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.c-label {
+  color: var(--text-dim);
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.c-val {
+  font-weight: 700;
+  color: var(--text-main);
+  font-family: var(--font-mono);
+  text-shadow: var(--font-shadow-dim);
+}
+
+.cockpit-section-title {
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin-top: 0.25rem;
+}
+
+.cockpit-nodes-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+}
+
+.c-node-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  box-shadow: var(--shadow-soft);
+  transition: all 0.2s ease;
+}
+.c-node-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-medium);
+}
+.c-node-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.c-node-id {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--accent-blue);
+  font-family: var(--font-mono);
+}
+.c-node-role {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+.c-node-meta {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+
+.cockpit-bottom-split {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 1rem;
+}
+
+.cockpit-panel-col {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  box-shadow: var(--shadow-soft);
+}
+.cockpit-col-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.col-title {
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.cockpit-terminal-console {
+  background: #090d16;
+  color: #cbd5e1;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  padding: 0.75rem;
+  border-radius: 8px;
+  height: 190px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  border: 1px solid #1e293b;
+}
+
+.vault-artifacts-table {
+  height: 190px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}

@@ -105,53 +105,53 @@ class DialogueManager:
         }
 
     def generate_response_text(self, intent: str, context: Dict[str, Any], lang: str = "hi-en") -> str:
-        """Generates conversational, warm, intelligent spoken responses in English or Hindi/Hinglish."""
+        """Generates strictly concise, zero-filler responses in English or Hindi."""
         if intent == "PIPELINE_TASK":
             if lang in ["hi", "hi-en"]:
-                return "Autonomous 4-Node Pipeline shuru ho chuka hai. Node 1 code likh raha hai, jiske baad Node 2 review karega, Node 3 architecture spec banayega aur Node 4 security audit karega."
-            return "Autonomous 4-node pipeline initiated. Node 1 is synthesizing code, routing sequentially to Node 2 QA, Node 3 Architecture, and Node 4 Security."
+                return "Pipeline active: Node 1 se Node 4 sequential handoff shuru."
+            return "4-Node pipeline active: Node 1 to Node 4."
 
         elif intent == "CLUSTER_STATUS":
             active_count = context.get("online_nodes", 8)
             total = context.get("total_nodes", 8)
             if lang in ["hi", "hi-en"]:
-                return f"Sabhi {active_count} DGX Spark nodes online aur fully operational hain. 1024 GB cluster VRAM available hai aur terminals live hain."
-            return f"Currently, all {active_count} of {total} DGX Spark nodes are online and operating normally with unified storage connected."
+                return f"{active_count} DGX nodes online. 1,024 GB VRAM ready."
+            return f"{active_count}/{total} DGX nodes online. 1,024 GB VRAM ready."
 
         elif intent == "CODE_TASK":
             node_name = context.get("node_name", "DGX Spark 01")
             if lang in ["hi", "hi-en"]:
-                return f"Ji bilkul. {node_name} ko coding task assign kar diya gaya hai. Self-healing engine code generate kar raha hai."
-            return f"Task scheduled. Routed to {node_name}. Self-healing synthesis is now running on its display."
+                return f"{node_name} par code generation running."
+            return f"{node_name} synthesizing code."
 
         elif intent == "REVIEW_TASK":
             rev_node = context.get("reviewer_node", "DGX Spark 02")
             if lang in ["hi", "hi-en"]:
-                return f"Generated code ko {rev_node} par QA review aur automated pytest test suite ke liye send kar diya gaya hai."
-            return f"Artifacts routed to {rev_node} for code review and automated test suite verification."
+                return f"{rev_node} par QA tests running."
+            return f"{rev_node} executing QA test suite."
 
         elif intent == "ARCHITECTURE_TASK":
             if lang in ["hi", "hi-en"]:
-                return "DGX Spark 03 par Llama 90B Vision model system architecture aur dataflow design prepare kar raha hai."
-            return "Task routed to DGX Node 3. Llama 90B Vision model is generating architectural documentation and dataflow specs."
+                return "DGX-3 architecture design generate kar raha hai."
+            return "DGX-3 generating architecture spec."
 
         elif intent == "SECURITY_AUDIT":
             if lang in ["hi", "hi-en"]:
-                return "DGX Spark 04 par 141B Deep Reasoner model boundary conditions aur security hardening audit perform kar raha hai."
-            return "Security Sentinel active on DGX Node 4. Deep reasoning engine is auditing boundary conditions and vulnerabilities."
+                return "DGX-4 security audit execute kar raha hai."
+            return "DGX-4 auditing security boundaries."
 
         elif intent == "CONFIRM_ACTION":
             if lang in ["hi", "hi-en"]:
-                return "Command authorize ho chuki hai. Cluster par execution shuru ho raha hai."
-            return "Action authorized by evidence gate. Proceeding with execution."
+                return "Action authorized. Executing."
+            return "Action authorized. Executing."
 
         elif intent == "SHUTDOWN_NODE":
-            target = context.get("target_node", "requested node")
+            target = context.get("target_node", "Node")
             if lang in ["hi", "hi-en"]:
-                return f"Savdhaan! {target} shutdown command evidence-gated verification ke liye hold par hai. Kripya confirm karein."
-            return f"Safety gate hold. Confirmation required before executing power command on {target}."
+                return f"Alert: {target} shutdown held by safety gate. Confirm required."
+            return f"Hold: {target} shutdown requires authorization."
 
         else:
             if lang in ["hi", "hi-en"]:
-                return "Aapka voice command receive ho gaya hai. Best DGX node par execution assign kar di hai."
-            return "Voice command received. Assigned to the optimal DGX compute node."
+                return "Task assigned. Executing."
+            return "Task assigned. Executing."
