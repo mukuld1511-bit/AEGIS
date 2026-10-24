@@ -188,19 +188,17 @@ async def test_kv_cache_ttl_expiry():
     role: 'Systems Architect (90B)',
     file: 'architecture_spec.md',
     size: '9.4 KB (Mermaid Topology)',
-    job: 'System Architecture Specification & Component Dataflow Graph',
-    codeSnippet: ````mermaid
-graph LR
+    codeSnippet: `graph LR
   Client([Client Prompt]) --> N1[DGX-1: Lead Coder]
   N1 -->|RDMA 10GbE| N2[DGX-2: QA Test Suite]
   N2 -->|RDMA 10GbE| N3[DGX-3: Systems Architect]
   N3 -->|RDMA 10GbE| N4[DGX-4: Security Sentinel]
   N4 --> Vault[(i7-14700 Storage Vault: 100.88.197.6)]
-\`\`\`
+
 ### Architecture Contract
-- **Fabric:** Mellanox ConnectX-5 10 GbE Direct RoCEv2
-- **Persistence:** Storage Vault NVMe (100.88.197.6:9080)
-- **Zero Copy Buffer:** Linux HugePages 2MB`
+- Fabric: Mellanox ConnectX-5 10 GbE Direct RoCEv2
+- Persistence: Storage Vault NVMe (100.88.197.6:9080)
+- Zero Copy Buffer: Linux HugePages 2MB`
   },
   4: {
     id: 'dgx-node-4',
@@ -1413,8 +1411,14 @@ window.dispatchCommand = dispatchCommand;
 window.downloadVaultFile = downloadVaultFile;
 
 // Initial boot
-document.addEventListener('DOMContentLoaded', () => {
+function boot() {
   initChatSessions();
   renderVaultFiles();
   setStageActive(1, 100);
-});
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', boot);
+} else {
+  boot();
+}
