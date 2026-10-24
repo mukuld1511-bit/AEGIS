@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AEGIS | Distributed Compute & Mesh Pipeline</title>
-  <meta name="description" content="AEGIS Distributed Cluster: Autonomous 4-Node Pipeline, Live RDMA Mesh, and Direct Prompting.">
+  <title>AEGIS | Distributed Compute & AI Prompt Platform</title>
+  <meta name="description" content="AEGIS Platform: Multi-turn prompt workbench with chat history, artifacts vault, live RDMA mesh, and 4-node pipeline.">
   
   <!-- Clean Typography -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="style.css?v=7.0">
+  <link rel="stylesheet" href="style.css?v=8.0">
   <style>
     svg { max-width: 100%; height: auto; }
     .icon-only-pill svg, .btn-action-pill svg { width: 14px; height: 14px; }
@@ -29,9 +29,9 @@
         <span class="cluster-tag">8x DGX &bull; 899B</span>
       </div>
 
-      <!-- Clean Navigation Tabs (No Slop) -->
+      <!-- Navigation Tabs -->
       <div class="view-switch-pill" id="view-mode-pill">
-        <button class="mode-tab-btn active" id="tab-user-view" data-view="user" title="Direct Prompting Interface">💬 Prompt</button>
+        <button class="mode-tab-btn active" id="tab-user-view" data-view="user" title="Interactive Prompt Platform">💬 Prompt</button>
         <button class="mode-tab-btn" id="tab-operator-view" data-view="operator" title="Distributed Pipeline & Network Mesh">⚡ Cluster Mesh</button>
       </div>
 
@@ -53,8 +53,8 @@
           <span id="continuous-label">Continuous: OFF</span>
         </button>
 
-        <!-- New Task Reset Button -->
-        <button class="pill-btn icon-only-pill" id="btn-new-task" title="Reset Session">
+        <!-- New Chat Reset Button -->
+        <button class="pill-btn icon-only-pill" id="btn-new-task" title="New Chat Session">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
         </button>
 
@@ -64,154 +64,230 @@
     </header>
 
     <!-- =========================================================================
-         TAB 1: PROMPT INTERFACE (Ultra-Minimal, Avatar ONLY when Speaking/Listening)
+         TAB 1: PROMPT WORKBENCH (SIDEBAR, PREVIOUS CHATS, ARTIFACTS, MULTI-TURN, LOADING & 404)
          ========================================================================= -->
     <div class="view-panel active-panel" id="view-user-panel">
-      <main class="siri-stage">
+      <div class="prompt-workbench">
         
-        <!-- Voice Overlay: APPEARS STRICTLY ONLY WHEN TALKING / LISTENING -->
-        <div class="voice-active-overlay hidden" id="voice-overlay">
-          <div class="siri-avatar-wrapper" id="siri-avatar">
-            <div class="siri-ambient-glow" id="siri-ambient"></div>
-            <div class="siri-wave-layer wave-3"></div>
-            <div class="siri-wave-layer wave-2"></div>
-            <div class="siri-wave-layer wave-1"></div>
-            <div class="siri-fluid-orb" id="siri-orb">
-              <div class="orb-core"></div>
-            </div>
-          </div>
-          <div class="transcript-box">
-            <div class="state-label" id="voice-state-text">Listening to microphone...</div>
-            <p class="transcript-text" id="spoken-text">"Speak your prompt..."</p>
-          </div>
-        </div>
-
-        <!-- Idle View (When Voice is OFF, Zero Avatar Intrusion) -->
-        <div class="idle-hero" id="idle-hero">
-          <h1 class="hero-title">Distributed Cluster Query</h1>
-          <p class="hero-subtitle">
-            Autonomous 4-Node Pipeline &bull; RDMA Mesh Interconnect &bull; Direct Answers
-          </p>
-
-          <!-- Engineering Workload Chips -->
-          <div class="prompt-chips-grid">
-            <button class="chip-card prompt-chip" data-cmd="Build a high-performance distributed key-value cache with TTL in Python.">
-              <div class="chip-card-top">
-                <span class="chip-icon">⚡</span>
-                <span class="chip-badge">Pipeline Task</span>
-              </div>
-              <div class="chip-card-title">Distributed Async KV Cache</div>
-              <div class="chip-card-desc">DGX-1 (Coder) ➔ DGX-2 (QA) ➔ DGX-3 (Arch) ➔ DGX-4 (Security)</div>
+        <!-- Left Collapsible Workbench Sidebar: Previous Chats & Artifacts -->
+        <aside class="workbench-sidebar" id="workbench-sidebar">
+          
+          <div class="sidebar-top">
+            <button class="btn-new-chat" id="btn-sidebar-new-chat">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              <span>New Chat</span>
             </button>
-
-            <button class="chip-card prompt-chip" data-cmd="Cluster status and online nodes audit.">
-              <div class="chip-card-top">
-                <span class="chip-icon">📊</span>
-                <span class="chip-badge">Telemetry</span>
-              </div>
-              <div class="chip-card-title">Cluster Memory & VRAM Audit</div>
-              <div class="chip-card-desc">1,024 GB VRAM status, thermal load, and active ports</div>
-            </button>
-
-            <button class="chip-card prompt-chip" data-cmd="Create a Python CSV data analysis script with pandas and matplotlib.">
-              <div class="chip-card-top">
-                <span class="chip-icon">🐍</span>
-                <span class="chip-badge">Data Science</span>
-              </div>
-              <div class="chip-card-title">CSV Analytics Pipeline</div>
-              <div class="chip-card-desc">Automated analysis, histogram generation, and pytest suite</div>
-            </button>
-
-            <button class="chip-card prompt-chip" data-cmd="Sabhi DGX nodes ka status batao.">
-              <div class="chip-card-top">
-                <span class="chip-icon">🇮🇳</span>
-                <span class="chip-badge">Hindi Query</span>
-              </div>
-              <div class="chip-card-title">Hindi Cluster Status</div>
-              <div class="chip-card-desc">Direct bilingual workload and hardware status</div>
+            <button class="btn-toggle-sidebar" id="btn-collapse-sidebar" title="Collapse Sidebar">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
             </button>
           </div>
-        </div>
 
-        <!-- Direct Output Card (Pure Code or Concise Answer, NO LLM CHATTER) -->
-        <div class="user-answer-card hidden" id="user-answer-card">
-          <div class="user-answer-header">
-            <div class="user-meta-left">
-              <span class="model-badge" id="user-active-model">⚡ 4-Node Pipeline</span>
-              <span class="status-badge" id="user-task-status">Ready</span>
-            </div>
-            <div class="response-header-actions">
-              <button class="btn-action-pill" id="btn-inspect-in-mesh" title="View in Cluster Mesh">
-                <span>View in Mesh ➔</span>
-              </button>
-              <button class="btn-action-pill" id="btn-copy-user" title="Copy Output to Clipboard">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                <span id="user-copy-label">Copy</span>
-              </button>
-              <button class="btn-action-pill" id="btn-download-user" title="Export File">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                <span>Export</span>
-              </button>
-              <button class="btn-close-card" id="btn-close-user" title="Close & Return">✕</button>
+          <!-- Sidebar Tabs: Chats vs Artifacts -->
+          <div class="sidebar-tab-row">
+            <button class="sidebar-tab active" id="tab-sidebar-chats">💬 Chats</button>
+            <button class="sidebar-tab" id="tab-sidebar-artifacts">📦 Artifacts (<span id="artifacts-badge-count">4</span>)</button>
+          </div>
+
+          <!-- Panel A: Previous Chats History -->
+          <div class="sidebar-content-pane" id="pane-sidebar-chats">
+            <div class="sidebar-section-label">Previous Conversations</div>
+            <div class="chat-history-list" id="chat-history-list">
+              <!-- Dynamically populated from JS -->
             </div>
           </div>
-          <!-- Clean Direct Content (Code or Pure Answer) -->
-          <div class="user-clean-content" id="user-clean-content">
-            <pre class="pure-code-view hidden" id="user-code-view"><code id="user-code-body"></code></pre>
-            <div class="pure-text-view" id="user-text-body">Awaiting execution...</div>
-          </div>
-        </div>
 
-      </main>
-
-      <!-- Floating Prompt Bar -->
-      <footer class="dock-container">
-        
-        <!-- Safety Alert Panel -->
-        <div class="safety-panel hidden" id="safety-alert-panel">
-          <div class="safety-content">
-            <span class="safety-icon">⚠️</span>
-            <div class="safety-details">
-              <strong id="safety-risk-level">Critical Action Held</strong>
-              <span id="safety-reason">Confirmation required before hardware execution.</span>
-              <code id="safety-command-text">shutdown -h now</code>
+          <!-- Panel B: Cluster Artifacts Vault -->
+          <div class="sidebar-content-pane hidden" id="pane-sidebar-artifacts">
+            <div class="sidebar-section-label">Storage Vault Artifacts</div>
+            <div class="artifacts-sidebar-list" id="artifacts-sidebar-list">
+              <!-- Dynamically populated from JS -->
             </div>
           </div>
-          <div class="safety-buttons">
-            <button class="btn-approve" id="btn-approve-action">Authorize</button>
-            <button class="btn-reject" id="btn-reject-action">Abort</button>
-          </div>
-        </div>
 
-        <div class="prompt-bar" id="prompt-bar">
-          <button class="mic-btn" id="btn-mic-toggle" title="Voice Input (Hindi/English)">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-              <line x1="12" y1="19" x2="12" y2="23"></line>
-              <line x1="8" y1="23" x2="16" y2="23"></line>
-            </svg>
+          <!-- Sidebar Footer -->
+          <div class="sidebar-footer">
+            <div class="sidebar-footer-stat">
+              <span class="dot-online"></span>
+              <span>4 DGX Nodes Active</span>
+            </div>
+            <span class="vault-ip-tag">Vault: 100.88.197.6</span>
+          </div>
+        </aside>
+
+        <!-- Right Main Stage (Chat Thread, Landing, Shimmer & Prompt Input) -->
+        <div class="workbench-stage" id="workbench-stage">
+          
+          <!-- Reopen Sidebar Button (when collapsed) -->
+          <button class="btn-open-sidebar hidden" id="btn-expand-sidebar" title="Open Sidebar">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
           </button>
 
-          <input 
-            type="text" 
-            id="cmd-input-field" 
-            class="prompt-input" 
-            placeholder="Enter command or speak prompt..." 
-            autocomplete="off"
-          />
+          <!-- Voice Overlay: APPEARS STRICTLY ONLY WHEN TALKING / LISTENING -->
+          <div class="voice-active-overlay hidden" id="voice-overlay">
+            <div class="siri-avatar-wrapper" id="siri-avatar">
+              <div class="siri-ambient-glow" id="siri-ambient"></div>
+              <div class="siri-wave-layer wave-3"></div>
+              <div class="siri-wave-layer wave-2"></div>
+              <div class="siri-wave-layer wave-1"></div>
+              <div class="siri-fluid-orb" id="siri-orb">
+                <div class="orb-core"></div>
+              </div>
+            </div>
+            <div class="transcript-box">
+              <div class="state-label" id="voice-state-text">Listening to microphone...</div>
+              <p class="transcript-text" id="spoken-text">"Speak your prompt..."</p>
+            </div>
+          </div>
 
-          <button class="send-btn" id="btn-dispatch-cmd" title="Send Prompt (Enter)">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
-            </svg>
-          </button>
-        </div>
+          <!-- Idle View (Zero Avatar Intrusion when Voice is OFF) -->
+          <div class="idle-hero" id="idle-hero">
+            <h1 class="hero-title">Distributed Cluster Query</h1>
+            <p class="hero-subtitle">
+              Autonomous 4-Node Pipeline &bull; RDMA Mesh Interconnect &bull; Direct Answers
+            </p>
 
-        <div class="footer-footnote">
-          AEGIS v2.0 &bull; Distributed RDMA Mesh &bull; Evidence-Gated Safety
+            <div class="prompt-chips-grid">
+              <button class="chip-card prompt-chip" data-cmd="Build a high-performance distributed key-value cache with TTL in Python.">
+                <div class="chip-card-top">
+                  <span class="chip-icon">⚡</span>
+                  <span class="chip-badge">Pipeline Task</span>
+                </div>
+                <div class="chip-card-title">Distributed Async KV Cache</div>
+                <div class="chip-card-desc">DGX-1 (Coder) ➔ DGX-2 (QA) ➔ DGX-3 (Arch) ➔ DGX-4 (Security)</div>
+              </button>
+
+              <button class="chip-card prompt-chip" data-cmd="Cluster status and online nodes audit.">
+                <div class="chip-card-top">
+                  <span class="chip-icon">📊</span>
+                  <span class="chip-badge">Telemetry</span>
+                </div>
+                <div class="chip-card-title">Cluster Memory & VRAM Audit</div>
+                <div class="chip-card-desc">1,024 GB VRAM status, thermal load, and active ports</div>
+              </button>
+
+              <button class="chip-card prompt-chip" data-cmd="Create a Python CSV data analysis script with pandas and matplotlib.">
+                <div class="chip-card-top">
+                  <span class="chip-icon">🐍</span>
+                  <span class="chip-badge">Data Science</span>
+                </div>
+                <div class="chip-card-title">CSV Analytics Pipeline</div>
+                <div class="chip-card-desc">Automated analysis, histogram generation, and pytest suite</div>
+              </button>
+
+              <button class="chip-card prompt-chip" data-cmd="Sabhi DGX nodes ka status batao.">
+                <div class="chip-card-top">
+                  <span class="chip-icon">🇮🇳</span>
+                  <span class="chip-badge">Hindi Query</span>
+                </div>
+                <div class="chip-card-title">Hindi Cluster Status</div>
+                <div class="chip-card-desc">Direct bilingual workload and hardware status</div>
+              </button>
+            </div>
+          </div>
+
+          <!-- Multi-Turn Conversation Thread Container -->
+          <div class="chat-thread-container hidden" id="chat-thread-container">
+            <!-- Messages dynamically appended by app.js -->
+          </div>
+
+          <!-- Loading Shimmer / 4-Stage Stepper Skeleton Card -->
+          <div class="chat-loading-card hidden" id="chat-loading-skeleton">
+            <div class="loading-header">
+              <span class="pulse-loader-dot"></span>
+              <span class="loading-stage-text" id="loading-stage-text">Routing intent to DGX Node 1 (Lead Coder)...</span>
+            </div>
+            <div class="loading-stepper-row">
+              <span class="mini-step active" id="l-step-1">1. Coder</span>
+              <span class="mini-step" id="l-step-2">2. QA</span>
+              <span class="mini-step" id="l-step-3">3. Arch</span>
+              <span class="mini-step" id="l-step-4">4. Security</span>
+            </div>
+            <div class="skeleton-shimmer-lines">
+              <div class="shimmer-line line-1"></div>
+              <div class="shimmer-line line-2"></div>
+              <div class="shimmer-line line-3"></div>
+            </div>
+          </div>
+
+          <!-- 404 / Error State Fallback Card -->
+          <div class="error-state-card hidden" id="error-state-card">
+            <div class="error-card-top">
+              <span class="error-badge-icon">⚠️</span>
+              <div class="error-info">
+                <strong id="error-title">404 - Cluster Resource Not Found</strong>
+                <p id="error-desc">The requested execution artifact or node socket was not reachable on Vault 100.88.197.6.</p>
+              </div>
+            </div>
+            <div class="error-card-actions">
+              <button class="btn-error-action" id="btn-retry-execution">Retry Execution</button>
+              <button class="btn-error-action secondary" id="btn-dismiss-error">Dismiss</button>
+            </div>
+          </div>
+
+          <!-- Floating Prompt Bar at Bottom -->
+          <footer class="dock-container">
+            
+            <!-- Safety Alert Panel -->
+            <div class="safety-panel hidden" id="safety-alert-panel">
+              <div class="safety-content">
+                <span class="safety-icon">⚠️</span>
+                <div class="safety-details">
+                  <strong id="safety-risk-level">Critical Action Held</strong>
+                  <span id="safety-reason">Confirmation required before hardware execution.</span>
+                  <code id="safety-command-text">shutdown -h now</code>
+                </div>
+              </div>
+              <div class="safety-buttons">
+                <button class="btn-approve" id="btn-approve-action">Authorize</button>
+                <button class="btn-reject" id="btn-reject-action">Abort</button>
+              </div>
+            </div>
+
+            <!-- Attached File Pill Preview -->
+            <div class="attached-file-pill hidden" id="attached-file-pill">
+              <span class="file-icon">📎</span>
+              <span class="file-name" id="attached-file-name">dataset.csv</span>
+              <button class="btn-remove-attachment" id="btn-remove-attachment" title="Remove Attachment">✕</button>
+            </div>
+
+            <div class="prompt-bar" id="prompt-bar">
+              <!-- File Attachment Button -->
+              <input type="file" id="file-attachment-input" style="display:none;" />
+              <button class="dock-btn-icon" id="btn-attach-file" title="Attach Code/Data File (.py, .csv, .json, .txt)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+              </button>
+
+              <button class="mic-btn" id="btn-mic-toggle" title="Voice Input (Hindi/English)">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                  <line x1="12" y1="19" x2="12" y2="23"></line>
+                  <line x1="8" y1="23" x2="16" y2="23"></line>
+                </svg>
+              </button>
+
+              <input 
+                type="text" 
+                id="cmd-input-field" 
+                class="prompt-input" 
+                placeholder="Enter command or speak prompt..." 
+                autocomplete="off"
+              />
+
+              <button class="send-btn" id="btn-dispatch-cmd" title="Send Prompt (Enter)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path>
+                </svg>
+              </button>
+            </div>
+
+            <div class="footer-footnote">
+              AEGIS v2.0 &bull; Multi-Turn Workbench &bull; Evidence-Gated Safety
+            </div>
+          </footer>
+
         </div>
-      </footer>
+      </div>
     </div>
 
     <!-- =========================================================================
@@ -403,25 +479,22 @@
             <!-- Traveling Packet Particle -->
             <circle cx="90" cy="40" r="5" class="rdma-packet-dot" id="rdma-packet-dot"></circle>
 
-            <!-- Node 1 SVG Landmark -->
+            <!-- Node Landmarks -->
             <g class="mesh-point active" id="pt-1" transform="translate(90, 40)">
               <circle r="16" class="pt-halo"></circle>
               <circle r="10" class="pt-core"></circle>
               <text y="3" text-anchor="middle" class="pt-label">DGX 1</text>
             </g>
-            <!-- Node 2 SVG Landmark -->
             <g class="mesh-point" id="pt-2" transform="translate(310, 40)">
               <circle r="16" class="pt-halo"></circle>
               <circle r="10" class="pt-core"></circle>
               <text y="3" text-anchor="middle" class="pt-label">DGX 2</text>
             </g>
-            <!-- Node 3 SVG Landmark -->
             <g class="mesh-point" id="pt-3" transform="translate(530, 40)">
               <circle r="16" class="pt-halo"></circle>
               <circle r="10" class="pt-core"></circle>
               <text y="3" text-anchor="middle" class="pt-label">DGX 3</text>
             </g>
-            <!-- Node 4 SVG Landmark -->
             <g class="mesh-point" id="pt-4" transform="translate(750, 40)">
               <circle r="16" class="pt-halo"></circle>
               <circle r="10" class="pt-core"></circle>
@@ -479,6 +552,27 @@
 
   </div>
 
-  <script src="app.js?v=7.0"></script>
+  <!-- Artifact Preview Modal -->
+  <div class="artifact-modal-backdrop hidden" id="artifact-modal">
+    <div class="artifact-modal-box">
+      <div class="modal-header">
+        <div class="modal-file-meta">
+          <span class="modal-file-icon">📄</span>
+          <strong id="modal-filename">dist_kv_cache.py</strong>
+          <span class="modal-file-tag" id="modal-file-node">DGX-1 &bull; 14.2 KB</span>
+        </div>
+        <div class="modal-header-actions">
+          <button class="btn-action-pill" id="btn-copy-modal-artifact">Copy</button>
+          <button class="btn-action-pill" id="btn-download-modal-artifact">Download</button>
+          <button class="modal-close" id="btn-close-modal">✕</button>
+        </div>
+      </div>
+      <div class="modal-code-body">
+        <pre class="modal-code-pre"><code id="modal-code-content"></code></pre>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=8.0"></script>
 </body>
 </html>

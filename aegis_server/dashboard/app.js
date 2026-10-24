@@ -1,15 +1,25 @@
 /**
- * AEGIS - Distributed Systems Mesh Pipeline & Prompt Intelligence
- * Core Functional Features:
- * 1. Clean Prompting with on-demand voice avatar (strictly active only when talking/listening).
- * 2. 4-Node Distributed Workload & Signal Flow Visualizer:
- *    - Real-time node progress (DGX-1 Coder -> DGX-2 QA -> DGX-3 Arch -> DGX-4 Security).
- *    - Signal tracking: active socket, throughput (1.2 GB/s), packet stream, and in-transit file payload.
- *    - Clickable node inspection & terminal log filtering.
- * 3. Zero-fluff user output: pure code blocks or direct answers only.
+ * AEGIS - Distributed Systems Mesh Pipeline & Prompt Workbench
+ * Deep Features:
+ * 1. Prompt Workbench:
+ *    - Collapsible Sidebar with New Chat (+), Previous Chats History, and Artifacts Vault.
+ *    - Multi-Turn Conversation Thread (User prompts & Cluster code/text responses).
+ *    - Shimmer Skeleton Loading State with 4-stage stepper progress.
+ *    - 404 / Error State Fallback Card with Retry & Dismiss actions.
+ *    - File Attachment support (.py, .csv, .json, .txt) with pill preview.
+ *    - Interactive Artifact Preview Modal with Syntax Highlighting, Copy & Download.
+ * 2. Strict On-Demand Voice Avatar:
+ *    - Remains completely hidden when idle.
+ *    - Strictly appears only when microphone listening or speaking response.
+ * 3. 4-Node Distributed Workload & Signal Flow Visualizer:
+ *    - Real-time RDMA signal tracking, packet streams, and terminal logs.
+ * 4. Zero-fluff engineering outputs: direct code or pure technical answers.
  */
 
-// Endpoints
+// ==============================================================================
+// 1. Endpoints & DOM Selectors
+// ==============================================================================
+
 const isDirectPiPort = window.location.port === '9000';
 const isFunnel = window.location.hostname.includes('tail') || window.location.hostname.includes('.ts.net');
 const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -28,37 +38,62 @@ const tabOperatorView = document.getElementById('tab-operator-view');
 const viewUserPanel = document.getElementById('view-user-panel');
 const viewOperatorPanel = document.getElementById('view-operator-panel');
 
-// User Prompt Elements
+// Workbench Sidebar Elements
+const workbenchSidebar = document.getElementById('workbench-sidebar');
+const btnSidebarNewChat = document.getElementById('btn-sidebar-new-chat');
+const btnCollapseSidebar = document.getElementById('btn-collapse-sidebar');
+const btnExpandSidebar = document.getElementById('btn-expand-sidebar');
+const tabSidebarChats = document.getElementById('tab-sidebar-chats');
+const tabSidebarArtifacts = document.getElementById('tab-sidebar-artifacts');
+const paneSidebarChats = document.getElementById('pane-sidebar-chats');
+const paneSidebarArtifacts = document.getElementById('pane-sidebar-artifacts');
+const chatHistoryList = document.getElementById('chat-history-list');
+const artifactsSidebarList = document.getElementById('artifacts-sidebar-list');
+const artifactsBadgeCount = document.getElementById('artifacts-badge-count');
+
+// Stage Elements
+const idleHero = document.getElementById('idle-hero');
+const chatThreadContainer = document.getElementById('chat-thread-container');
+const chatLoadingSkeleton = document.getElementById('chat-loading-skeleton');
+const loadingStageText = document.getElementById('loading-stage-text');
+const errorStateCard = document.getElementById('error-state-card');
+const errorTitle = document.getElementById('error-title');
+const errorDesc = document.getElementById('error-desc');
+const btnRetryExecution = document.getElementById('btn-retry-execution');
+const btnDismissError = document.getElementById('btn-dismiss-error');
+
+// Voice Avatar Elements
+const voiceOverlay = document.getElementById('voice-overlay');
 const siriAvatar = document.getElementById('siri-avatar');
 const siriOrb = document.getElementById('siri-orb');
 const siriAmbient = document.getElementById('siri-ambient');
 const voiceStateText = document.getElementById('voice-state-text');
 const spokenText = document.getElementById('spoken-text');
-const voiceOverlay = document.getElementById('voice-overlay');
-const idleHero = document.getElementById('idle-hero');
 
-const userAnswerCard = document.getElementById('user-answer-card');
-const userActiveModel = document.getElementById('user-active-model');
-const userTaskStatus = document.getElementById('user-task-status');
-const userCodeView = document.getElementById('user-code-view');
-const userCodeBody = document.getElementById('user-code-body');
-const userTextBody = document.getElementById('user-text-body');
-const btnInspectInMesh = document.getElementById('btn-inspect-in-mesh');
-const btnCopyUser = document.getElementById('btn-copy-user');
-const userCopyLabel = document.getElementById('user-copy-label');
-const btnDownloadUser = document.getElementById('btn-download-user');
-const btnCloseUser = document.getElementById('btn-close-user');
-
+// Dock & Input Elements
 const cmdInput = document.getElementById('cmd-input-field');
 const btnDispatch = document.getElementById('btn-dispatch-cmd');
 const btnMic = document.getElementById('btn-mic-toggle');
-const routeSelector = document.getElementById('route-selector');
+const btnAttachFile = document.getElementById('btn-attach-file');
+const fileAttachmentInput = document.getElementById('file-attachment-input');
+const attachedFilePill = document.getElementById('attached-file-pill');
+const attachedFileName = document.getElementById('attached-file-name');
+const btnRemoveAttachment = document.getElementById('btn-remove-attachment');
 const btnNewTask = document.getElementById('btn-new-task');
 const btnThemeToggle = document.getElementById('btn-theme-toggle');
-
 const btnToggleContinuous = document.getElementById('btn-toggle-continuous');
 const continuousDot = document.getElementById('continuous-dot');
 const continuousLabel = document.getElementById('continuous-label');
+const routeSelector = document.getElementById('route-selector');
+
+// Artifact Preview Modal Elements
+const artifactModal = document.getElementById('artifact-modal');
+const modalFilename = document.getElementById('modal-filename');
+const modalFileNode = document.getElementById('modal-file-node');
+const modalCodeContent = document.getElementById('modal-code-content');
+const btnCloseModal = document.getElementById('btn-close-modal');
+const btnCopyModalArtifact = document.getElementById('btn-copy-modal-artifact');
+const btnDownloadModalArtifact = document.getElementById('btn-download-modal-artifact');
 
 // Mesh Interface Elements
 const btnTriggerPipeline = document.getElementById('btn-trigger-pipeline');
@@ -69,11 +104,9 @@ const beam12 = document.getElementById('beam-1-2');
 const beam23 = document.getElementById('beam-2-3');
 const beam34 = document.getElementById('beam-3-4');
 const beamVault = document.getElementById('beam-vault');
-
 const payloadFilename = document.getElementById('payload-filename');
 const payloadMeta = document.getElementById('payload-meta');
 const payloadSnippet = document.getElementById('payload-snippet');
-
 const meshTerminalStream = document.getElementById('mesh-terminal-stream');
 const btnClearMeshTerm = document.getElementById('btn-clear-mesh-term');
 const vaultFilesTable = document.getElementById('vault-files-table');
@@ -87,20 +120,10 @@ const safetyCommandText = document.getElementById('safety-command-text');
 const btnApprove = document.getElementById('btn-approve-action');
 const btnReject = document.getElementById('btn-reject-action');
 
-// State Variables
-let ws = null;
-let isListening = false;
-let isContinuousMode = false;
-let audioContext = null;
-let audioAnalyser = null;
-let audioSource = null;
-let micStream = null;
-let animFrameId = null;
-let currentActiveNodeId = 'dgx-node-1';
-let pipelineTimer = null;
-let activeLogFilter = 'all';
+// ==============================================================================
+// 2. Data Models & Static Definitions
+// ==============================================================================
 
-// Node Stage Workload Definitions (Kisme kitna aur kya kaam chl rha h)
 const nodeStages = {
   1: {
     id: 'dgx-node-1',
@@ -108,7 +131,33 @@ const nodeStages = {
     file: 'dist_kv_cache.py',
     size: '14.2 KB (380 lines)',
     job: 'Async Distributed KV Cache Synthesis (TTL & LRU eviction)',
-    codeSnippet: `class DistributedKVCache:\n    """Async in-memory key-value cache with TTL expiration."""\n    def __init__(self):\n        self._store: Dict[str, Any] = {}\n        self._expiry: Dict[str, float] = {}\n\n    async def set(self, key: str, value: Any, ttl_seconds: int = 300) -> None:\n        self._store[key] = value\n        self._expiry[key] = time.time() + ttl_seconds`
+    codeSnippet: `import asyncio
+import time
+from typing import Any, Dict, Optional
+
+class DistributedKVCache:
+    """Async in-memory key-value cache with TTL expiration and LRU eviction."""
+    def __init__(self, default_ttl: int = 300):
+        self._store: Dict[str, Any] = {}
+        self._expiry: Dict[str, float] = {}
+        self._default_ttl = default_ttl
+        self._lock = asyncio.Lock()
+
+    async def get(self, key: str) -> Optional[Any]:
+        async with self._lock:
+            if key not in self._store:
+                return None
+            if time.time() > self._expiry.get(key, 0):
+                del self._store[key]
+                del self._expiry[key]
+                return None
+            return self._store[key]
+
+    async def set(self, key: str, value: Any, ttl_seconds: Optional[int] = None) -> None:
+        async with self._lock:
+            ttl = ttl_seconds if ttl_seconds is not None else self._default_ttl
+            self._store[key] = value
+            self._expiry[key] = time.time() + ttl`
   },
   2: {
     id: 'dgx-node-2',
@@ -116,7 +165,22 @@ const nodeStages = {
     file: 'test_suite.py',
     size: '18.6 KB (12 unit tests)',
     job: 'Automated PyTest Suite & Cache Expiration Invalidation',
-    codeSnippet: `import pytest\nimport asyncio\n\n@pytest.mark.asyncio\nasync def test_kv_cache_ttl_expiry():\n    cache = DistributedKVCache()\n    await cache.set("session_token", "active_0x99", ttl_seconds=1)\n    assert await cache.get("session_token") == "active_0x99"\n    await asyncio.sleep(1.1)\n    assert await cache.get("session_token") is None`
+    codeSnippet: `import pytest
+import asyncio
+from dist_kv_cache import DistributedKVCache
+
+@pytest.mark.asyncio
+async def test_kv_cache_basic_ops():
+    cache = DistributedKVCache()
+    await cache.set("cluster_key", "active_0x99", ttl_seconds=2)
+    assert await cache.get("cluster_key") == "active_0x99"
+
+@pytest.mark.asyncio
+async def test_kv_cache_ttl_expiry():
+    cache = DistributedKVCache()
+    await cache.set("temp_token", "secret", ttl_seconds=1)
+    await asyncio.sleep(1.1)
+    assert await cache.get("temp_token") is None`
   },
   3: {
     id: 'dgx-node-3',
@@ -124,7 +188,18 @@ const nodeStages = {
     file: 'architecture_spec.md',
     size: '9.4 KB (Mermaid Topology)',
     job: 'System Architecture Specification & Component Dataflow Graph',
-    codeSnippet: ````mermaid\ngraph LR\n  Client([Client Prompt]) --> N1[DGX-1: Coder]\n  N1 -->|RDMA 10GbE| N2[DGX-2: QA Test Suite]\n  N2 -->|RDMA 10GbE| N3[DGX-3: Systems Architect]\n  N3 -->|RDMA 10GbE| N4[DGX-4: Security Sentinel]\n  N4 --> Vault[(i7-14700 Storage Vault)]\n`````
+    codeSnippet: ````mermaid
+graph LR
+  Client([Client Prompt]) --> N1[DGX-1: Lead Coder]
+  N1 -->|RDMA 10GbE| N2[DGX-2: QA Test Suite]
+  N2 -->|RDMA 10GbE| N3[DGX-3: Systems Architect]
+  N3 -->|RDMA 10GbE| N4[DGX-4: Security Sentinel]
+  N4 --> Vault[(i7-14700 Storage Vault: 100.88.197.6)]
+`````
+### Architecture Contract
+- **Fabric:** Mellanox ConnectX-5 10 GbE Direct RoCEv2
+- **Persistence:** Storage Vault NVMe (100.88.197.6:9080)
+- **Zero Copy Buffer:** Linux HugePages 2MB`
   },
   4: {
     id: 'dgx-node-4',
@@ -132,14 +207,460 @@ const nodeStages = {
     file: 'hardened_solution.py',
     size: '21.0 KB (Hardened)',
     job: 'Memory Bounds Validation, Re-entrancy Lock & Production Signoff',
-    codeSnippet: `# Cert: AEGIS Evidence-Gated Safety Sentinel\nimport threading\nfrom typing import Optional, Any, Dict\n\nclass HardenedKVCache(DistributedKVCache):\n    def __init__(self):\n        super().__init__()\n        self._lock = asyncio.Lock()\n\n    async def set_safe(self, key: str, value: Any, ttl: int = 300):\n        async with self._lock:\n            await super().set(key, value, ttl)`
+    codeSnippet: `# Cert: AEGIS Evidence-Gated Safety Sentinel v2.0
+# Audit: Zero unbounded allocations | Clean Re-entrancy Lock
+import asyncio
+from typing import Any, Optional
+from dist_kv_cache import DistributedKVCache
+
+class HardenedKVCache(DistributedKVCache):
+    """Production-grade hardened wrapper certified by DGX-4."""
+    MAX_ENTRY_SIZE_BYTES = 10 * 1024 * 1024  # 10MB bounds
+    
+    async def set_safe(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
+        if len(key) > 512:
+            raise ValueError("Key length exceeds safety limits (512 bytes)")
+        await super().set(key, value, ttl)
+        return True`
   }
 };
 
-const allTerminalLogs = [];
+const vaultArtifacts = [
+  { name: 'dist_kv_cache.py', size: '14.2 KB', time: '15:42', node: 'DGX-1', content: nodeStages[1].codeSnippet },
+  { name: 'test_suite.py', size: '18.6 KB', time: '15:43', node: 'DGX-2', content: nodeStages[2].codeSnippet },
+  { name: 'architecture_spec.md', size: '9.4 KB', time: '15:44', node: 'DGX-3', content: nodeStages[3].codeSnippet },
+  { name: 'hardened_solution.py', size: '21.0 KB', time: '15:45', node: 'DGX-4', content: nodeStages[4].codeSnippet }
+];
 
 // ==============================================================================
-// 1. Navigation & Tabs
+// 3. State Management (Chats, History, Attachments)
+// ==============================================================================
+
+let chatSessions = [];
+let activeChatId = null;
+let attachedFile = null;
+let lastFailedCommand = null;
+
+let isListening = false;
+let isContinuousMode = false;
+let audioContext = null;
+let audioAnalyser = null;
+let audioSource = null;
+let micStream = null;
+let animFrameId = null;
+let pipelineTimer = null;
+let activeLogFilter = 'all';
+const allTerminalLogs = [];
+
+// Initialize LocalStorage Sessions
+function initChatSessions() {
+  try {
+    const saved = localStorage.getItem('aegis_chat_sessions');
+    if (saved) {
+      chatSessions = JSON.parse(saved);
+    }
+  } catch (e) {
+    chatSessions = [];
+  }
+
+  // Pre-seed with realistic developer chats if empty
+  if (!chatSessions || chatSessions.length === 0) {
+    chatSessions = [
+      {
+        id: 'chat-seed-1',
+        title: 'Distributed Async KV Cache',
+        timestamp: '16:15',
+        messages: [
+          {
+            role: 'user',
+            text: 'Build a high-performance distributed key-value cache with TTL in Python.',
+            time: '16:15'
+          },
+          {
+            role: 'assistant',
+            text: '',
+            code: nodeStages[1].codeSnippet,
+            model: '⚡ 4-Node Pipeline (DGX-1 ➔ 4)',
+            time: '16:16'
+          }
+        ]
+      },
+      {
+        id: 'chat-seed-2',
+        title: 'Cluster Status & VRAM Audit',
+        timestamp: '15:50',
+        messages: [
+          {
+            role: 'user',
+            text: 'Cluster status and online nodes audit.',
+            time: '15:50'
+          },
+          {
+            role: 'assistant',
+            text: 'Nodes Online: 8/8 | VRAM: 1,024 GB (186 GB In-Use) | Vault: 100.88.197.6 (Online) | Fabric: 10 GbE Direct RDMA RoCEv2 (Zero packet loss)',
+            code: '',
+            model: 'DGX Cluster Telemetry',
+            time: '15:50'
+          }
+        ]
+      }
+    ];
+    saveChatSessions();
+  }
+
+  activeChatId = localStorage.getItem('aegis_active_chat_id') || chatSessions[0]?.id;
+  renderChatHistory();
+  renderArtifactsSidebar();
+  loadActiveChat();
+}
+
+function saveChatSessions() {
+  try {
+    localStorage.setItem('aegis_chat_sessions', JSON.stringify(chatSessions));
+    if (activeChatId) {
+      localStorage.setItem('aegis_active_chat_id', activeChatId);
+    }
+  } catch (e) {
+    console.warn('LocalStorage error:', e);
+  }
+}
+
+function createNewChatSession(initialTitle = 'New Conversation') {
+  const newId = 'chat-' + Date.now();
+  const newSession = {
+    id: newId,
+    title: initialTitle,
+    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    messages: []
+  };
+  chatSessions.unshift(newSession);
+  activeChatId = newId;
+  saveChatSessions();
+  renderChatHistory();
+  loadActiveChat();
+  if (cmdInput) cmdInput.focus();
+}
+
+function deleteChatSession(chatId, e) {
+  if (e) e.stopPropagation();
+  chatSessions = chatSessions.filter(c => c.id !== chatId);
+  if (activeChatId === chatId) {
+    activeChatId = chatSessions.length > 0 ? chatSessions[0].id : null;
+  }
+  if (!activeChatId) {
+    createNewChatSession();
+    return;
+  }
+  saveChatSessions();
+  renderChatHistory();
+  loadActiveChat();
+}
+
+function renderChatHistory() {
+  if (!chatHistoryList) return;
+  chatHistoryList.innerHTML = '';
+
+  if (chatSessions.length === 0) {
+    chatHistoryList.innerHTML = '<div style="padding: 12px; font-size: 0.78rem; color: var(--text-dim); text-align: center;">No previous conversations</div>';
+    return;
+  }
+
+  chatSessions.forEach(session => {
+    const item = document.createElement('div');
+    item.className = `chat-history-item ${session.id === activeChatId ? 'active' : ''}`;
+    item.onclick = () => {
+      activeChatId = session.id;
+      saveChatSessions();
+      renderChatHistory();
+      loadActiveChat();
+    };
+
+    item.innerHTML = `
+      <div class="chat-history-info">
+        <div class="chat-history-title">${escapeHtml(session.title)}</div>
+        <div class="chat-history-date">${session.timestamp || 'Today'} &bull; ${session.messages.length} msgs</div>
+      </div>
+      <button class="btn-delete-chat" title="Delete conversation" onclick="deleteChatSession('${session.id}', event)">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    `;
+    chatHistoryList.appendChild(item);
+  });
+}
+
+function loadActiveChat() {
+  const current = chatSessions.find(c => c.id === activeChatId);
+  if (!current || current.messages.length === 0) {
+    if (chatThreadContainer) {
+      chatThreadContainer.innerHTML = '';
+      chatThreadContainer.classList.add('hidden');
+    }
+    if (idleHero) idleHero.classList.remove('hidden');
+    hideLoadingSkeleton();
+    hide404Error();
+    return;
+  }
+
+  if (idleHero) idleHero.classList.add('hidden');
+  if (chatThreadContainer) {
+    chatThreadContainer.classList.remove('hidden');
+    chatThreadContainer.innerHTML = '';
+    current.messages.forEach(msg => {
+      renderMessageToDOM(msg);
+    });
+    scrollThreadToBottom();
+  }
+}
+
+// Render Artifacts Sidebar List
+function renderArtifactsSidebar() {
+  if (!artifactsSidebarList) return;
+  artifactsSidebarList.innerHTML = '';
+  if (artifactsBadgeCount) artifactsBadgeCount.textContent = vaultArtifacts.length.toString();
+
+  vaultArtifacts.forEach((art, idx) => {
+    const item = document.createElement('div');
+    item.className = 'artifact-sidebar-item';
+    item.onclick = () => openArtifactModal(art);
+    item.innerHTML = `
+      <div class="artifact-sidebar-top">
+        <span class="artifact-sidebar-name">${escapeHtml(art.name)}</span>
+        <span class="artifact-node-tag">${art.node}</span>
+      </div>
+      <div class="artifact-sidebar-meta">
+        <span>${art.size}</span>
+        <span>${art.time}</span>
+      </div>
+    `;
+    artifactsSidebarList.appendChild(item);
+  });
+}
+
+// ==============================================================================
+// 4. Artifact Preview Modal
+// ==============================================================================
+
+let currentViewingArtifact = null;
+
+function openArtifactModal(artifact) {
+  currentViewingArtifact = artifact;
+  if (!artifactModal) return;
+  if (modalFilename) modalFilename.textContent = artifact.name;
+  if (modalFileNode) modalFileNode.textContent = `${artifact.node} • ${artifact.size}`;
+  if (modalCodeContent) modalCodeContent.textContent = artifact.content || nodeStages[1].codeSnippet;
+  artifactModal.classList.remove('hidden');
+}
+
+function closeArtifactModal() {
+  if (artifactModal) artifactModal.classList.add('hidden');
+  currentViewingArtifact = null;
+}
+
+btnCloseModal?.addEventListener('click', closeArtifactModal);
+artifactModal?.addEventListener('click', (e) => {
+  if (e.target === artifactModal) closeArtifactModal();
+});
+
+btnCopyModalArtifact?.addEventListener('click', async () => {
+  const code = modalCodeContent ? modalCodeContent.textContent : '';
+  if (!code) return;
+  try {
+    await navigator.clipboard.writeText(code);
+    btnCopyModalArtifact.textContent = 'Copied!';
+    setTimeout(() => {
+      if (btnCopyModalArtifact) btnCopyModalArtifact.textContent = 'Copy';
+    }, 2000);
+  } catch (err) {}
+});
+
+btnDownloadModalArtifact?.addEventListener('click', () => {
+  if (!currentViewingArtifact) return;
+  const content = modalCodeContent ? modalCodeContent.textContent : '';
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = currentViewingArtifact.name || 'artifact.txt';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+
+// ==============================================================================
+// 5. Loading Skeleton & 404 / Error State Handlers
+// ==============================================================================
+
+function showLoadingSkeleton(stageText = 'Routing intent to DGX Node 1 (Lead Coder)...', stepIndex = 1) {
+  if (chatLoadingSkeleton) {
+    chatLoadingSkeleton.classList.remove('hidden');
+  }
+  if (loadingStageText) {
+    loadingStageText.textContent = stageText;
+  }
+  for (let i = 1; i <= 4; i++) {
+    const stepEl = document.getElementById(`l-step-${i}`);
+    if (stepEl) {
+      stepEl.classList.toggle('active', i === stepIndex);
+    }
+  }
+  scrollThreadToBottom();
+}
+
+function hideLoadingSkeleton() {
+  if (chatLoadingSkeleton) chatLoadingSkeleton.classList.add('hidden');
+}
+
+function show404Error(title, desc) {
+  hideLoadingSkeleton();
+  if (errorStateCard) {
+    errorStateCard.classList.remove('hidden');
+  }
+  if (errorTitle) errorTitle.textContent = title || '404 - Cluster Resource Not Found';
+  if (errorDesc) errorDesc.textContent = desc || 'The requested execution artifact or node socket was not reachable on Vault 100.88.197.6.';
+  scrollThreadToBottom();
+}
+
+function hide404Error() {
+  if (errorStateCard) errorStateCard.classList.add('hidden');
+}
+
+btnDismissError?.addEventListener('click', hide404Error);
+btnRetryExecution?.addEventListener('click', () => {
+  hide404Error();
+  if (lastFailedCommand) {
+    dispatchCommand(lastFailedCommand);
+  } else {
+    dispatchCommand('Build a high-performance distributed key-value cache with TTL in Python.');
+  }
+});
+
+// ==============================================================================
+// 6. Multi-Turn Chat Messaging System
+// ==============================================================================
+
+function appendChatMessage(role, text, code = '', modelName = '⚡ 4-Node Pipeline', attachedName = '') {
+  if (idleHero) idleHero.classList.add('hidden');
+  if (chatThreadContainer) chatThreadContainer.classList.remove('hidden');
+
+  let current = chatSessions.find(c => c.id === activeChatId);
+  if (!current) {
+    createNewChatSession(text.slice(0, 36) || 'New Conversation');
+    current = chatSessions.find(c => c.id === activeChatId);
+  }
+
+  // Update title if first message
+  if (current.messages.length === 0 && role === 'user') {
+    current.title = text.slice(0, 32) + (text.length > 32 ? '...' : '');
+  }
+
+  const msgObj = {
+    role,
+    text,
+    code,
+    model: modelName,
+    attachedFile: attachedName,
+    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  };
+
+  current.messages.push(msgObj);
+  saveChatSessions();
+  renderChatHistory();
+  renderMessageToDOM(msgObj);
+  scrollThreadToBottom();
+}
+
+function renderMessageToDOM(msg) {
+  if (!chatThreadContainer) return;
+
+  const msgRow = document.createElement('div');
+  msgRow.className = `chat-msg ${msg.role}`;
+
+  if (msg.role === 'user') {
+    let attachmentHtml = '';
+    if (msg.attachedFile) {
+      attachmentHtml = `<div class="msg-attachment-badge"><span class="badge-icon">📎</span><span>${escapeHtml(msg.attachedFile)}</span></div>`;
+    }
+
+    msgRow.innerHTML = `
+      <div class="msg-bubble">
+        ${attachmentHtml}
+        <div class="msg-text-content">${escapeHtml(msg.text)}</div>
+        <div class="msg-time-stamp">${msg.time || ''}</div>
+      </div>
+    `;
+  } else {
+    // Assistant Response
+    let bodyHtml = '';
+    if (msg.code) {
+      bodyHtml = `
+        <div class="msg-code-block">
+          <div class="code-block-header">
+            <span class="code-lang-tag">python</span>
+            <button class="btn-copy-code" onclick="copySnippetText(this)">Copy Code</button>
+          </div>
+          <pre class="code-pre"><code>${escapeHtml(msg.code)}</code></pre>
+        </div>
+      `;
+    }
+    if (msg.text) {
+      bodyHtml += `<div class="msg-pure-text">${escapeHtml(msg.text)}</div>`;
+    }
+
+    msgRow.innerHTML = `
+      <div class="msg-card">
+        <div class="msg-header">
+          <div class="msg-model-info">
+            <span class="node-badge-icon">⚡</span>
+            <strong>${escapeHtml(msg.model || '⚡ 4-Node Pipeline')}</strong>
+            <span class="time-subtle">${msg.time || ''}</span>
+          </div>
+          <div class="msg-header-actions">
+            <button class="btn-subtle-action" onclick="downloadSnippetText('${escapeHtml(msg.code || msg.text)}')">Download</button>
+          </div>
+        </div>
+        <div class="msg-card-body">
+          ${bodyHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  chatThreadContainer.appendChild(msgRow);
+}
+
+function scrollThreadToBottom() {
+  if (!chatThreadContainer) return;
+  chatThreadContainer.scrollTop = chatThreadContainer.scrollHeight;
+}
+
+window.copySnippetText = async function(btn) {
+  const codeBlock = btn.closest('.msg-code-block');
+  const code = codeBlock ? codeBlock.querySelector('code')?.textContent : '';
+  if (!code) return;
+  try {
+    await navigator.clipboard.writeText(code);
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = orig; }, 1800);
+  } catch (err) {}
+};
+
+window.downloadSnippetText = function(content) {
+  if (!content) return;
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'aegis_solution.py';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+// ==============================================================================
+// 7. Navigation & Tabs
 // ==============================================================================
 
 function setTab(tab) {
@@ -159,10 +680,69 @@ function setTab(tab) {
 
 tabUserView?.addEventListener('click', () => setTab('user'));
 tabOperatorView?.addEventListener('click', () => setTab('operator'));
-btnInspectInMesh?.addEventListener('click', () => setTab('operator'));
+
+// Sidebar Tabs: Chats vs Artifacts
+tabSidebarChats?.addEventListener('click', () => {
+  tabSidebarChats.classList.add('active');
+  tabSidebarArtifacts.classList.remove('active');
+  paneSidebarChats?.classList.remove('hidden');
+  paneSidebarArtifacts?.classList.add('hidden');
+});
+
+tabSidebarArtifacts?.addEventListener('click', () => {
+  tabSidebarArtifacts.classList.add('active');
+  tabSidebarChats.classList.remove('active');
+  paneSidebarArtifacts?.classList.remove('hidden');
+  paneSidebarChats?.classList.add('hidden');
+});
+
+// Sidebar Collapse / Expand
+btnCollapseSidebar?.addEventListener('click', () => {
+  workbenchSidebar?.classList.add('collapsed');
+  btnExpandSidebar?.classList.remove('hidden');
+});
+
+btnExpandSidebar?.addEventListener('click', () => {
+  workbenchSidebar?.classList.remove('collapsed');
+  btnExpandSidebar?.classList.add('hidden');
+});
+
+btnSidebarNewChat?.addEventListener('click', () => {
+  createNewChatSession();
+});
+
+btnNewTask?.addEventListener('click', () => {
+  createNewChatSession();
+});
 
 // ==============================================================================
-// 2. Strict On-Demand Voice Avatar Visibility
+// 8. File Attachment Handlers
+// ==============================================================================
+
+btnAttachFile?.addEventListener('click', () => {
+  fileAttachmentInput?.click();
+});
+
+fileAttachmentInput?.addEventListener('change', (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (file) {
+    attachedFile = {
+      name: file.name,
+      size: (file.size / 1024).toFixed(1) + ' KB'
+    };
+    if (attachedFileName) attachedFileName.textContent = `${file.name} (${attachedFile.size})`;
+    if (attachedFilePill) attachedFilePill.classList.remove('hidden');
+  }
+});
+
+btnRemoveAttachment?.addEventListener('click', () => {
+  attachedFile = null;
+  if (fileAttachmentInput) fileAttachmentInput.value = '';
+  if (attachedFilePill) attachedFilePill.classList.add('hidden');
+});
+
+// ==============================================================================
+// 9. Strict On-Demand Voice Avatar Visibility
 // ==============================================================================
 
 function showVoiceAvatar() {
@@ -173,17 +753,13 @@ function showVoiceAvatar() {
 function hideVoiceAvatarIfIdle() {
   if (isListening || (window.speechSynthesis && window.speechSynthesis.speaking)) return;
   if (voiceOverlay) voiceOverlay.classList.add('hidden');
-  if (userAnswerCard && !userAnswerCard.classList.contains('hidden')) {
-    if (idleHero) idleHero.classList.add('hidden');
-  } else {
+  const current = chatSessions.find(c => c.id === activeChatId);
+  if (!current || current.messages.length === 0) {
     if (idleHero) idleHero.classList.remove('hidden');
   }
 }
 
-// ==============================================================================
-// 3. Audio Visualizer & Speech Recognition
-// ==============================================================================
-
+// Audio wave visualizer
 async function startAudioWaveVisualizer() {
   try {
     if (!audioContext) {
@@ -275,6 +851,7 @@ function speakAudioResponse(text) {
   }
 }
 
+// Speech Recognition
 let recognition = null;
 if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -373,7 +950,7 @@ btnToggleContinuous?.addEventListener('click', () => {
 });
 
 // ==============================================================================
-// 4. Zero-Fluff Result Formatter (Direct Code & Answers Only)
+// 10. Zero-Fluff Result Formatter (Direct Code & Answers Only)
 // ==============================================================================
 
 function extractPureResult(text) {
@@ -397,31 +974,138 @@ function extractPureResult(text) {
   return { type: 'text', content: clean || raw };
 }
 
-let activeUserSolution = '';
-function renderUserAnswer(rawAnswer, modelName = '⚡ 4-Node Pipeline') {
-  if (idleHero) idleHero.classList.add('hidden');
-  if (voiceOverlay) voiceOverlay.classList.add('hidden');
-  if (userAnswerCard) userAnswerCard.classList.remove('hidden');
+// ==============================================================================
+// 11. Command Dispatching & Stepper Simulation
+// ==============================================================================
 
-  if (userActiveModel) userActiveModel.textContent = modelName;
-  if (userTaskStatus) userTaskStatus.textContent = 'Completed';
+async function dispatchCommand(commandText) {
+  if (!commandText || !commandText.trim()) return;
+  const prompt = commandText.trim();
+  const currentAttachmentName = attachedFile ? attachedFile.name : '';
 
-  const parsed = extractPureResult(rawAnswer);
-  activeUserSolution = parsed.content;
+  // Clear dock input & attachment
+  if (cmdInput) cmdInput.value = '';
+  attachedFile = null;
+  if (fileAttachmentInput) fileAttachmentInput.value = '';
+  if (attachedFilePill) attachedFilePill.classList.add('hidden');
 
-  if (parsed.type === 'code') {
-    if (userCodeBody) userCodeBody.textContent = parsed.content;
-    if (userCodeView) userCodeView.classList.remove('hidden');
-    if (userTextBody) userTextBody.classList.add('hidden');
-  } else {
-    if (userTextBody) userTextBody.textContent = parsed.content;
-    if (userTextBody) userTextBody.classList.remove('hidden');
-    if (userCodeView) userCodeView.classList.add('hidden');
+  lastFailedCommand = prompt;
+  hide404Error();
+
+  // 1. Append User Message
+  appendChatMessage('user', prompt, '', '', currentAttachmentName);
+
+  appendLog('CLUSTER', `> [PROMPT]: "${prompt}"`, 'term-cyan');
+
+  // 2. Show Loading Skeleton & Start Stepper Progress
+  showLoadingSkeleton('Routing intent to DGX Node 1 (Lead Coder)...', 1);
+
+  // Trigger Mesh Tab Real-Time Animation in background
+  runFull4NodePipelineSimulation();
+
+  let currentStep = 1;
+  const stepTimer = setInterval(() => {
+    currentStep++;
+    if (currentStep === 2) {
+      showLoadingSkeleton('DGX Node 2 (QA Reviewer) executing 12 unit tests...', 2);
+    } else if (currentStep === 3) {
+      showLoadingSkeleton('DGX Node 3 (Systems Architect) certifying topology graph...', 3);
+    } else if (currentStep === 4) {
+      showLoadingSkeleton('DGX Node 4 (Security Sentinel) auditing memory safety & locks...', 4);
+    }
+  }, 1100);
+
+  // 3. Dispatch to Server API
+  try {
+    const res = await fetch(`${API_BASE}/api/command`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        command: prompt, 
+        preferred_node: 'dgx-node-1',
+        pipeline_mode: true,
+        attachment: currentAttachmentName
+      })
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      clearInterval(stepTimer);
+      hideLoadingSkeleton();
+
+      if (data.spoken_response) {
+        if (spokenText) spokenText.textContent = `"${data.spoken_response}"`;
+        speakAudioResponse(data.spoken_response);
+      }
+
+      const answer = data.result || data.spoken_response || nodeStages[1].codeSnippet;
+      const parsed = extractPureResult(answer);
+
+      if (parsed.type === 'code') {
+        appendChatMessage('assistant', '', parsed.content, '⚡ 4-Node Pipeline');
+      } else {
+        appendChatMessage('assistant', parsed.content, '', '⚡ 4-Node Pipeline');
+      }
+      return;
+    } else if (res.status === 404) {
+      clearInterval(stepTimer);
+      hideLoadingSkeleton();
+      show404Error('404 - Node Or Artifact Not Found', `HTTP 404: Endpoint ${API_BASE}/api/command or requested cluster node was unreachable.`);
+      return;
+    }
+  } catch (err) {
+    // Network / Offline fallback simulation
   }
+
+  // Fallback direct realistic cluster response
+  setTimeout(() => {
+    clearInterval(stepTimer);
+    hideLoadingSkeleton();
+
+    const lower = prompt.toLowerCase();
+    let spoken = "";
+    let codeResult = "";
+    let textResult = "";
+
+    if (lower.includes('status') || lower.includes('online')) {
+      spoken = "8 DGX nodes online. 1,024 GB VRAM ready.";
+      textResult = "Nodes Online: 8/8 | VRAM: 1,024 GB | Vault: 100.88.197.6 (Online) | Fabric: 10 GbE Direct RDMA";
+    } else if (lower.includes('csv') || lower.includes('pandas')) {
+      spoken = "Python CSV pipeline generated.";
+      codeResult = `import pandas as pd
+import matplotlib.pyplot as plt
+
+def analyze_csv(filepath: str):
+    """Automated high-throughput CSV analysis."""
+    df = pd.read_csv(filepath)
+    print(f"Loaded {len(df)} rows. Summary:\\n", df.describe())
+    df.hist(figsize=(10, 6))
+    plt.tight_layout()
+    plt.savefig("analysis_chart.png")
+
+if __name__ == "__main__":
+    analyze_csv("dataset.csv")`;
+    } else if (lower.includes('404') || lower.includes('error')) {
+      show404Error('404 - Artifact / File Not Found', 'The requested file or model weight snapshot was not found on Storage Vault 100.88.197.6.');
+      return;
+    } else {
+      spoken = "Distributed KV cache solution generated.";
+      codeResult = nodeStages[1].codeSnippet;
+    }
+
+    if (spokenText) spokenText.textContent = `"${spoken}"`;
+    speakAudioResponse(spoken);
+
+    if (codeResult) {
+      appendChatMessage('assistant', '', codeResult, '⚡ 4-Node Pipeline');
+    } else {
+      appendChatMessage('assistant', textResult, '', '⚡ DGX Cluster Telemetry');
+    }
+  }, 2400);
 }
 
 // ==============================================================================
-// 5. Live 4-Node Pipeline Execution & Mesh Transmission
+// 12. Mesh Tab Simulation & Pipeline Visualizer
 // ==============================================================================
 
 function runFull4NodePipelineSimulation() {
@@ -461,7 +1145,6 @@ function runFull4NodePipelineSimulation() {
 }
 
 function setStageActive(stageNum, progress) {
-  currentActiveNodeId = `dgx-node-${stageNum}`;
   for (let i = 1; i <= 4; i++) {
     const card = document.getElementById(`card-node-${i}`);
     const pill = document.getElementById(`status-pill-${i}`);
@@ -480,7 +1163,6 @@ function setStageActive(stageNum, progress) {
       if (pill) { pill.className = 'work-status-pill active'; pill.textContent = 'WORKING'; }
       if (progBar) progBar.style.width = `${progress}%`;
       if (progPct) progPct.textContent = `${progress}%`;
-      // Animate progress to 100%
       setTimeout(() => {
         if (progBar) progBar.style.width = '100%';
         if (progPct) progPct.textContent = '100%';
@@ -493,7 +1175,6 @@ function setStageActive(stageNum, progress) {
     }
   }
 
-  // Update Payload Inspector with active node's work
   const sData = nodeStages[stageNum];
   if (sData) {
     if (payloadFilename) payloadFilename.textContent = sData.file;
@@ -511,7 +1192,6 @@ function setStageDone(stageNum) {
 }
 
 function transmitSignal(from, to, filename, size) {
-  // Update Signal Status Pill
   if (liveSignalStatus) {
     if (to === 'vault') {
       liveSignalStatus.textContent = `Signal: DGX-4 ➔ Vault [SYNCED] • 10 GbE Direct • ${size} • Exit 0`;
@@ -520,7 +1200,6 @@ function transmitSignal(from, to, filename, size) {
     }
   }
 
-  // Animate packet dot and beam
   const packetPositions = { 1: 90, 2: 310, 3: 530, 4: 750 };
   const targetX = to === 'vault' ? 750 : (packetPositions[to] || 90);
 
@@ -528,13 +1207,11 @@ function transmitSignal(from, to, filename, size) {
     rdmaPacketDot.setAttribute('cx', targetX.toString());
   }
 
-  // Highlight active beam
   beam12?.classList.toggle('active-flow', from === 1 && to === 2);
   beam23?.classList.toggle('active-flow', from === 2 && to === 3);
   beam34?.classList.toggle('active-flow', from === 3 && to === 4);
   beamVault?.classList.toggle('active-flow', to === 'vault');
 
-  // Highlight mesh points
   for (let i = 1; i <= 4; i++) {
     const pt = document.getElementById(`pt-${i}`);
     if (i === to) {
@@ -548,10 +1225,10 @@ function transmitSignal(from, to, filename, size) {
 }
 
 function escapeHtml(str) {
+  if (!str) return '';
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// Click on any node work card to inspect that node
 document.querySelectorAll('.node-work-card').forEach(card => {
   card.addEventListener('click', () => {
     const nodeId = card.getAttribute('data-node');
@@ -561,10 +1238,7 @@ document.querySelectorAll('.node-work-card').forEach(card => {
   });
 });
 
-// ==============================================================================
-// 6. Terminal Log Stream & Filtering
-// ==============================================================================
-
+// Terminal Log Stream & Filtering
 function appendLog(nodeId, text, colorClass = '') {
   allTerminalLogs.push({ nodeId, text, colorClass, time: new Date().toLocaleTimeString() });
   renderLogs();
@@ -606,17 +1280,7 @@ btnClearMeshTerm?.addEventListener('click', () => {
   if (meshTerminalStream) meshTerminalStream.innerHTML = '<span class="term-dim">[SYSTEM] Terminal logs cleared.</span>\n';
 });
 
-// ==============================================================================
-// 7. Storage Vault Files
-// ==============================================================================
-
-const vaultArtifacts = [
-  { name: 'dist_kv_cache.py', size: '14.2 KB', time: '15:42', node: 'DGX-1' },
-  { name: 'test_suite.py', size: '18.6 KB', time: '15:43', node: 'DGX-2' },
-  { name: 'architecture_spec.md', size: '9.4 KB', time: '15:44', node: 'DGX-3' },
-  { name: 'hardened_solution.py', size: '21.0 KB', time: '15:45', node: 'DGX-4' }
-];
-
+// Storage Vault Files Table in Tab 2
 function renderVaultFiles() {
   if (!vaultFilesTable) return;
   vaultFilesTable.innerHTML = '';
@@ -626,14 +1290,23 @@ function renderVaultFiles() {
     row.innerHTML = `
       <span class="artifact-name">${file.name}</span>
       <span style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim);">${file.size} &bull; ${file.node}</span>
-      <a href="#" class="artifact-link" onclick="downloadVaultFile('${file.name}')">Download</a>
+      <div style="display: flex; gap: 8px;">
+        <a href="#" class="artifact-link" onclick="openArtifactModalByName('${file.name}'); return false;">Inspect</a>
+        <a href="#" class="artifact-link" onclick="downloadVaultFile('${file.name}'); return false;">Download</a>
+      </div>
     `;
     vaultFilesTable.appendChild(row);
   });
 }
 
-function downloadVaultFile(filename) {
-  const content = activeUserSolution || nodeStages[1].codeSnippet;
+window.openArtifactModalByName = function(filename) {
+  const art = vaultArtifacts.find(a => a.name === filename);
+  if (art) openArtifactModal(art);
+};
+
+window.downloadVaultFile = function(filename) {
+  const art = vaultArtifacts.find(a => a.name === filename);
+  const content = art ? art.content : nodeStages[1].codeSnippet;
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -643,83 +1316,12 @@ function downloadVaultFile(filename) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-}
+};
 
 btnRefreshVaultList?.addEventListener('click', renderVaultFiles);
 
 // ==============================================================================
-// 8. Command Dispatching & User Interface Integration
-// ==============================================================================
-
-async function dispatchCommand(commandText) {
-  if (!commandText || !commandText.trim()) return;
-  const prompt = commandText.trim();
-  if (cmdInput) cmdInput.value = '';
-
-  if (idleHero) idleHero.classList.add('hidden');
-  if (userAnswerCard) {
-    userAnswerCard.classList.remove('hidden');
-    userTaskStatus.textContent = 'Executing';
-    userTextBody.textContent = 'Routing to DGX cluster...';
-    userTextBody.classList.remove('hidden');
-    userCodeView.classList.add('hidden');
-  }
-
-  appendLog('CLUSTER', `> [PROMPT]: "${prompt}"`, 'term-cyan');
-
-  // Trigger real pipeline visual execution
-  runFull4NodePipelineSimulation();
-
-  const selectedTarget = routeSelector ? routeSelector.value : 'pipeline';
-  const isPipeline = selectedTarget === 'pipeline';
-  const targetNode = isPipeline ? 'dgx-node-1' : selectedTarget;
-
-  try {
-    const res = await fetch(`${API_BASE}/api/command`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        command: prompt, 
-        preferred_node: targetNode,
-        pipeline_mode: isPipeline
-      })
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      if (data.spoken_response) {
-        if (spokenText) spokenText.textContent = `"${data.spoken_response}"`;
-        speakAudioResponse(data.spoken_response);
-      }
-      const answer = data.result || data.spoken_response || nodeStages[1].codeSnippet;
-      renderUserAnswer(answer, routeSelector ? routeSelector.options[routeSelector.selectedIndex].text : '⚡ 4-Node Pipeline');
-      return;
-    }
-  } catch (err) {}
-
-  // Direct Simulation Response
-  const lower = prompt.toLowerCase();
-  let spoken = "";
-  let directResult = "";
-
-  if (lower.includes('status') || lower.includes('online')) {
-    spoken = "8 DGX nodes online. 1,024 GB VRAM ready.";
-    directResult = "Nodes Online: 8/8 | VRAM: 1,024 GB | Vault: 100.88.197.6 (Online) | Fabric: 10 GbE Direct RDMA";
-  } else if (lower.includes('csv') || lower.includes('pandas')) {
-    spoken = "Python CSV pipeline generated.";
-    directResult = `import pandas as pd\nimport matplotlib.pyplot as plt\n\ndef analyze_csv(filepath: str):\n    df = pd.read_csv(filepath)\n    print(f"Loaded {len(df)} rows. Summary:\\n", df.describe())\n    df.hist(figsize=(10, 6))\n    plt.savefig("analysis_chart.png")\n\nif __name__ == "__main__":\n    analyze_csv("data.csv")`;
-  } else {
-    spoken = "Distributed KV cache solution generated.";
-    directResult = nodeStages[1].codeSnippet;
-  }
-
-  if (spokenText) spokenText.textContent = `"${spoken}"`;
-  speakAudioResponse(spoken);
-  renderUserAnswer(directResult, '⚡ 4-Node Pipeline');
-}
-
-// ==============================================================================
-// 9. Buttons & Interactive Controls
+// 13. Event Listeners & Boot
 // ==============================================================================
 
 btnTriggerPipeline?.addEventListener('click', () => {
@@ -728,50 +1330,6 @@ btnTriggerPipeline?.addEventListener('click', () => {
 
 btnPingMesh?.addEventListener('click', () => {
   appendLog('CLUSTER', '[MESH PROBE] Probing RoCEv2 direct RDMA links: DGX-1 <-> DGX-2 (1.8ms), DGX-2 <-> DGX-3 (2.1ms), DGX-3 <-> DGX-4 (2.0ms). Zero packet loss.', 'term-emerald');
-});
-
-btnNewTask?.addEventListener('click', () => {
-  window.speechSynthesis?.cancel();
-  if (recognition && isListening) {
-    try { recognition.stop(); } catch (e) {}
-  }
-  isListening = false;
-  if (siriAvatar) siriAvatar.classList.remove('speaking', 'listening');
-  if (btnMic) btnMic.classList.remove('active-listening');
-  stopAudioWaveVisualizer();
-
-  if (userAnswerCard) userAnswerCard.classList.add('hidden');
-  if (voiceOverlay) voiceOverlay.classList.add('hidden');
-  if (idleHero) idleHero.classList.remove('hidden');
-  if (cmdInput) {
-    cmdInput.value = '';
-    cmdInput.focus();
-  }
-  appendLog('CLUSTER', '[SESSION] Session reset. Pipeline ready.', 'term-dim');
-});
-
-btnCloseUser?.addEventListener('click', () => {
-  if (userAnswerCard) userAnswerCard.classList.add('hidden');
-  if (voiceOverlay) voiceOverlay.classList.add('hidden');
-  if (idleHero) idleHero.classList.remove('hidden');
-});
-
-btnCopyUser?.addEventListener('click', async () => {
-  const text = activeUserSolution || (userCodeBody ? userCodeBody.innerText : '');
-  if (!text) return;
-  try {
-    await navigator.clipboard.writeText(text);
-    btnCopyUser.classList.add('copied');
-    if (userCopyLabel) userCopyLabel.textContent = 'Copied!';
-    setTimeout(() => {
-      btnCopyUser.classList.remove('copied');
-      if (userCopyLabel) userCopyLabel.textContent = 'Copy';
-    }, 2000);
-  } catch (err) {}
-});
-
-btnDownloadUser?.addEventListener('click', () => {
-  downloadVaultFile('aegis_solution.py');
 });
 
 btnThemeToggle?.addEventListener('click', () => {
@@ -797,6 +1355,7 @@ document.querySelectorAll('.prompt-chip').forEach(chip => {
 
 // Initial boot
 document.addEventListener('DOMContentLoaded', () => {
+  initChatSessions();
   renderVaultFiles();
   setStageActive(1, 100);
 });
