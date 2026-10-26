@@ -90,10 +90,12 @@ class DialogueManager:
             target_node = target_node or "dgx-node-1"
 
         # Detect language cues (Hindi / Hinglish vs English)
-        is_hindi = any(w in cleaned for w in [
+        words = set(re.findall(r"\b\w+\b", cleaned))
+        hindi_keywords = {
             "hai", "hain", "karo", "batao", "dikhao", "banao", "chalao", "shuru",
             "kaun", "kya", "sab", "sabhi", "theek", "haan", "kaam", "chahiye", "kar", "do"
-        ])
+        }
+        is_hindi = bool(words & hindi_keywords)
         lang = "hi-en" if is_hindi else "en"
 
         return {
@@ -115,7 +117,7 @@ class DialogueManager:
             active_count = context.get("online_nodes", 8)
             total = context.get("total_nodes", 8)
             if lang in ["hi", "hi-en"]:
-                return f"{active_count} DGX nodes online. 1,024 GB VRAM ready."
+                return f"{active_count} DGX nodes online aur ready hain. 1,024 GB VRAM ready."
             return f"{active_count}/{total} DGX nodes online. 1,024 GB VRAM ready."
 
         elif intent == "CODE_TASK":

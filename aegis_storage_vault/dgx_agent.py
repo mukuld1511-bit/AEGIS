@@ -58,10 +58,10 @@ if sys.platform != "win32":
 # Optional GUI Frameworks for Desktop HUD (Prefer PyQt5 for true 32-bit ARGB glassmorphic dynamic island; fallback to Tkinter)
 try:
     from PyQt5 import QtCore, QtGui, QtWidgets
-    from PyQt5.QtCore import Qt, QTimer, QRect, QPoint, QRectF, pyqtSignal, QObject
+    from PyQt5.QtCore import Qt, QTimer, QRect, QPoint, QRectF, pyqtSignal, QObject, QEvent
     from PyQt5.QtGui import (
         QPainter, QColor, QPen, QBrush, QFont, QRadialGradient, 
-        QLinearGradient, QPainterPath, QCursor, QFontMetrics
+        QLinearGradient, QPainterPath, QCursor, QFontMetrics, QRegion
     )
     from PyQt5.QtWidgets import (
         QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
@@ -215,6 +215,12 @@ def make_pure_desktop_overlay(widget):
                 "-f", "_NET_WM_STATE", "32a",
                 "-set", "_NET_WM_STATE", "_NET_WM_STATE_SKIP_TASKBAR _NET_WM_STATE_SKIP_PAGER _NET_WM_STATE_ABOVE"
             ], capture_output=True, timeout=0.3)
+            # Enable Picom/KWin/Mutter blur behind translucent window
+            subprocess.run([
+                "xprop", "-id", str(win_id),
+                "-f", "_KDE_NET_WM_BLUR_BEHIND_REGION", "32c",
+                "-set", "_KDE_NET_WM_BLUR_BEHIND_REGION", "0"
+            ], capture_output=True, timeout=0.3)
         except Exception:
             pass
 
@@ -280,7 +286,7 @@ class CornerLogoOrb(QWidget):
         margin_y = 24
         pos_x = int(avail.x() + avail.width() - self.orb_size - margin_x)
         pos_y = int(avail.y() + avail.height() - self.orb_size - margin_y)
-        self.move(pos_x, pos_y)
+        self.setGeometry(pos_x, pos_y, self.orb_size, self.orb_size)
 
     def play_entrance_animation(self):
         self._position_in_corner()
@@ -352,11 +358,11 @@ class CornerLogoOrb(QWidget):
         painter.setBrush(QBrush(halo_grad))
         painter.drawEllipse(QRectF(cx - r * 1.3, cy - r * 1.3, r * 2.6, r * 2.6))
 
-        # 2. Sleek Dark Glass Body
+        # 2. Sleek Translucent Glass Body
         body_grad = QRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 1.2)
-        body_grad.setColorAt(0.0, QColor(24, 28, 38, 245))
-        body_grad.setColorAt(0.7, QColor(14, 17, 24, 250))
-        body_grad.setColorAt(1.0, QColor(9, 12, 17, 255))
+        body_grad.setColorAt(0.0, QColor(32, 40, 58, 195))
+        body_grad.setColorAt(0.65, QColor(18, 24, 36, 185))
+        body_grad.setColorAt(1.0, QColor(10, 14, 24, 210))
         painter.setBrush(QBrush(body_grad))
         painter.setPen(Qt.NoPen)
         painter.drawEllipse(QRectF(cx - r, cy - r, r * 2, r * 2))
@@ -419,12 +425,61 @@ class CornerLogoOrb(QWidget):
         painter.drawEllipse(QRectF(cx - 2.5, pip_y, 5.0, 5.0))
 
 
+class Spring:
+    """Second-order harmonic spring physics engine: m*x'' + c*x' + k*(x - target) = 0.
+    Provides organic tactile overshoot, mass inertia, and natural rubbery snap
+    mirroring the Apple iOS Dynamic Island fluid transitions.
+    """
+    def __init__(self, val: float = 0.0, target: float = 0.0, stiffness: float = 305.0, damping: float = 21.5, mass: float = 1.0):
+        self.val = float(val)
+        self.target = float(target)
+        self.vel = 0.0
+        self.k = float(stiffness)  # Spring constant
+        self.c = float(damping)    # Viscous damping coefficient
+        self.m = float(mass)       # Mass
+
+    def snap_to(self, val: float):
+        """Immediately reset position and cancel velocity."""
+        self.val = float(val)
+        self.target = float(val)
+        self.vel = 0.0
+
+    def set_target(self, target: float):
+        self.target = float(target)
+
+    def update(self, dt: float = 0.016) -> bool:
+        """Advance physics state by dt using semi-implicit Euler integration.
+        Returns True if spring has settled at equilibrium, False otherwise.
+        """
+        displacement = self.val - self.target
+        force = -self.k * displacement - self.c * self.vel
+        accel = force / self.m
+
+        # Semi-implicit Euler integration
+        self.vel += accel * dt
+        self.val += self.vel * dt
+
+        # Settle condition: sub-pixel threshold
+        if abs(displacement) < 0.25 and abs(self.vel) < 0.35:
+            self.val = self.target
+            self.vel = 0.0
+            return True
+        return False
+
+
 class DynamicIslandWidget(QWidget):
-    """Central Apple-Style Dynamic Island Notch with Smooth Pastel Transitions.
+    """Central Apple-Style Dynamic Island Notch with Harmonic Spring Physics Engine.
+    Architecture:
+    - Fixed Oversized Transparent Viewport (760 x 500 px) anchored at top-center.
+      Never resizes on animation ticks, eliminating OS/X11 window resizing jitter and flicker.
+    - Second-order harmonic spring physics (F = -kx - cv) with organic overshoot & rubbery bounce.
+    - Input masking via QRegion so transparent areas outside the active capsule are 100% click-through.
+    - True compositor glassmorphism with specular rim highlight, ambient soft aura, and optical border.
+
     States:
     1. STATE_PILL_IDLE:  Compact ~240 x 36 px minimal resting capsule at top-center.
-    2. STATE_PILL_BUSY:  Horizontally stretched ~540 x 36 px (SAME HEIGHT!) with live activity & wave.
-    3. STATE_ALERT_DONE: Downward stretched ~440 x 96 px notification card with tick & file details.
+    2. STATE_PILL_BUSY:  Horizontally stretched ~540 x 36 px (SAME 36px HEIGHT!) with live activity & wave.
+    3. STATE_ALERT_DONE: Downward stretched ~440 x 108 px notification card with checkmark & file details.
     4. STATE_EXPANDED:   Full ~680 x 440 px elegant frosted developer hub & telemetry console.
     """
     minimize_to_corner = pyqtSignal()
@@ -437,6 +492,9 @@ class DynamicIslandWidget(QWidget):
     STATE_ALERT_DONE = 2
     STATE_EXPANDED = 3
 
+    VIEWPORT_W = 760
+    VIEWPORT_H = 500
+
     def __init__(self, node_id="dgx-node-1", node_name="DGX Spark 01", shared_queue=None, parent=None):
         super().__init__(parent)
         self.node_id = node_id
@@ -445,23 +503,35 @@ class DynamicIslandWidget(QWidget):
         self.log_queue = shared_queue or queue.Queue()
 
         self.state = self.STATE_PILL_IDLE
+        self.target_state = self.STATE_PILL_IDLE
         self.current_status = "ONLINE"
         self.active_model = "qwen2.5-coder:32b"
         self.task_text = "Ready • Standing by"
         self.gpu_text = "GPU 0%"
         self.is_busy = False
 
-        # Authentic Apple Dynamic Island Dimensions
-        self.dim_pill_idle = (240, 36)
+        # Authentic Apple Dynamic Island State Dimensions
+        self.dim_pill_idle = (260, 36)
         self.dim_pill_busy = (540, 36)    # EXACT SAME 36px HEIGHT!
-        self.dim_alert_done = (440, 96)   # Downward stretch droplet card
-        self.dim_expanded = (680, 440)
+        self.dim_alert_done = (440, 108)  # Downward stretch droplet card
+        self.dim_expanded = (680, 440)    # Full developer console
 
-        self.cur_w, self.cur_h = self.dim_pill_idle
-        self.start_w, self.start_h = self.cur_w, self.cur_h
-        self.target_w, self.target_h = self.cur_w, self.cur_h
+        # Harmonic Spring Physics Engine (Stiffness, Damping, Mass)
+        # Provides organic tactile overshoot and rubbery bounce
+        self.spring_w = Spring(val=self.dim_pill_idle[0], target=self.dim_pill_idle[0], stiffness=305.0, damping=21.5, mass=1.0)
+        self.spring_h = Spring(val=self.dim_pill_idle[1], target=self.dim_pill_idle[1], stiffness=315.0, damping=22.5, mass=1.0)
+        self.is_animating = False
 
-        # Window Flags: Pure desktop overlay immune to dock and taskbar (Qt.ToolTip enables override-redirect in X11)
+        # Fluid desktop dragging support
+        self._drag_active = False
+        self._drag_start_pos = QPoint()
+        self._window_start_pos = QPoint()
+        self._moved = False
+
+        self.physics_timer = QTimer(self)
+        self.physics_timer.timeout.connect(self._physics_tick)
+
+        # Window Flags: Pure desktop overlay immune to dock and taskbar
         flags = Qt.ToolTip | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         if hasattr(Qt, "BypassWindowManagerHint"):
             flags |= Qt.BypassWindowManagerHint
@@ -473,14 +543,10 @@ class DynamicIslandWidget(QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.setAttribute(Qt.WA_X11DoNotAcceptFocus, True)
         self.setMouseTracking(True)
-        self.setFixedSize(self.cur_w, self.cur_h)
+        self.target_screen = QApplication.primaryScreen()
 
-        # Smooth Ease-In Ease-Out animation
-        self.is_animating = False
-        self.anim_step = 0
-        self.anim_total = 24
-        self.anim_timer = QTimer(self)
-        self.anim_timer.timeout.connect(self._animation_tick)
+        # Fixed viewport: Geometry is set ONCE, never resized on animation ticks!
+        self.setFixedSize(self.VIEWPORT_W, self.VIEWPORT_H)
 
         # Subtle wave & spinner timers
         self.spinner_phase = 0.0
@@ -495,127 +561,158 @@ class DynamicIslandWidget(QWidget):
         self.q_timer.start(30)
 
         self._init_ui()
-        self._reposition_center()
+        self._position_viewport()
 
-    def update_node(self, node_id: str):
-        self.node_id = node_id
-        self.theme = get_node_theme(node_id)
-        self._apply_theme_styles()
-        self.update()
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._position_viewport()
+        self._enable_x11_blur()
+
+    def _enable_x11_blur(self):
+        """Instructs X11 compositors (Picom / KWin / Mutter) to blur desktop under the notch."""
+        if sys.platform != "win32":
+            try:
+                wid = int(self.winId())
+                subprocess.run(
+                    ["xprop", "-id", str(wid), "-f", "_KDE_NET_WM_BLUR_BEHIND_REGION", "32c", "-set", "_KDE_NET_WM_BLUR_BEHIND_REGION", "0"],
+                    capture_output=True, timeout=0.3
+                )
+            except Exception:
+                pass
+
+    def _position_viewport(self):
+        """Positions the fixed viewport at top-center of the active screen once."""
+        screen = getattr(self, "target_screen", None) or QApplication.primaryScreen()
+        if not screen:
+            screen = QApplication.screenAt(QCursor.pos())
+        if screen:
+            geom = screen.geometry()
+            avail = screen.availableGeometry()
+        else:
+            geom = QRect(0, 0, 1920, 1080)
+            avail = geom
+        pos_x = int(geom.x() + (geom.width() - self.VIEWPORT_W) / 2)
+        top_offset = avail.y() + 4 if avail.y() > geom.y() else (geom.y() + 8)
+        pos_y = int(top_offset)
+        self.setGeometry(pos_x, pos_y, self.VIEWPORT_W, self.VIEWPORT_H)
+        self._sync_capsule_geometry()
 
     def _reposition_center(self):
-        screen = QApplication.primaryScreen()
-        if screen:
-            geom = screen.geometry()
-            avail = screen.availableGeometry()
-        else:
-            geom = QRect(0, 0, 1920, 1080)
-            avail = geom
-        pos_x = int(geom.x() + (geom.width() - self.cur_w) / 2)
-        pos_y = int(avail.y() + 6 if avail.y() > geom.y() else (geom.y() + 10))
-        self.move(pos_x, pos_y)
+        """Preserved for API compatibility."""
+        self._position_viewport()
+
+    def _sync_capsule_geometry(self):
+        """Syncs the internal capsule widget and input mask with current spring coordinates."""
+        cur_w = max(60.0, self.spring_w.val)
+        cur_h = max(28.0, self.spring_h.val)
+        capsule_x = (self.VIEWPORT_W - cur_w) / 2.0
+        capsule_y = 6.0
+        if hasattr(self, "capsule"):
+            self.capsule.setGeometry(int(capsule_x), int(capsule_y), int(cur_w), int(cur_h))
+
+        # Shape input mask so all transparent areas outside capsule pass clicks directly to desktop
+        pad = 8
+        mask_rect = QRect(int(capsule_x - pad), int(capsule_y - pad), int(cur_w + pad * 2), int(cur_h + pad * 2))
+        self.setMask(QRegion(mask_rect))
 
     def play_entrance_animation(self):
-        screen = QApplication.primaryScreen()
-        if screen:
-            geom = screen.geometry()
-            avail = screen.availableGeometry()
-        else:
-            geom = QRect(0, 0, 1920, 1080)
-            avail = geom
-        self.final_y = int(avail.y() + 6 if avail.y() > geom.y() else (geom.y() + 10))
-        self.entrance_start_w = 70
-        self.entrance_target_w = self.cur_w
-
-        # Position at physical monitor top-center
-        pos_x = int(geom.x() + (geom.width() - self.entrance_start_w) / 2)
-        self.cur_w = self.entrance_start_w
-        self.setFixedSize(self.cur_w, self.cur_h)
-        self.move(pos_x, self.final_y)
-
-        self.entrance_step = 0
-        self.entrance_total = 24
-        self.entrance_timer = QTimer(self)
-        self.entrance_timer.timeout.connect(self._entrance_tick)
-        self.entrance_timer.start(16)
-
-    def _entrance_tick(self):
-        self.entrance_step += 1
-        t = self.entrance_step / float(self.entrance_total)
-        ease = ease_in_out(t)
-        cur_w = int(self.entrance_start_w + (self.entrance_target_w - self.entrance_start_w) * ease)
-        screen = QApplication.primaryScreen()
-        geom = screen.geometry() if screen else QRect(0, 0, 1920, 1080)
-        pos_x = int(geom.x() + (geom.width() - cur_w) / 2)
-        self.cur_w = cur_w
-        self.setFixedSize(cur_w, self.cur_h)
-        self.move(pos_x, self.final_y)
-        if self.entrance_step >= self.entrance_total:
-            self.entrance_timer.stop()
-            self.cur_w = self.entrance_target_w
-            self.setFixedSize(self.cur_w, self.cur_h)
-            self._reposition_center()
-            self.update()
+        """Harmonic entrance animation: stretches naturally from narrow notch into idle pill."""
+        self._position_viewport()
+        self.spring_w.snap_to(70.0)
+        self.spring_h.snap_to(36.0)
+        self.spring_w.set_target(self.dim_pill_idle[0])
+        self.spring_h.set_target(self.dim_pill_idle[1])
+        self.target_state = self.STATE_PILL_IDLE
+        self.is_animating = True
+        self.physics_timer.start(16)
 
     def _init_ui(self):
-        self.master_layout = QVBoxLayout(self)
-        self.master_layout.setSizeConstraint(QtWidgets.QLayout.SetNoConstraint)
-        self.master_layout.setContentsMargins(10, 4, 10, 4)
-        self.master_layout.setSpacing(0)
+        # Master Capsule Container
+        self.capsule = QWidget(self)
+        self.capsule.setObjectName("islandCapsule")
+        self.capsule.setStyleSheet("#islandCapsule { background: transparent; }")
+        self.capsule.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.capsule.installEventFilter(self)
+
+        self.capsule_layout = QVBoxLayout(self.capsule)
+        self.capsule_layout.setSizeConstraint(QtWidgets.QLayout.SetNoConstraint)
+        self.capsule_layout.setContentsMargins(8, 4, 8, 4)
+        self.capsule_layout.setSpacing(0)
 
         # ── 1. COMPACT IDLE & HORIZONTALLY STRETCHED BUSY CAPSULE (Height 28px inside 36px) ──
-        self.pill_bar = QWidget(self)
+        self.pill_bar = QWidget(self.capsule)
         self.pill_bar.setFixedHeight(28)
-        pill_layout = QHBoxLayout(self.pill_bar)
-        pill_layout.setContentsMargins(2, 0, 2, 0)
-        pill_layout.setSpacing(8)
+        self.pill_bar.installEventFilter(self)
+        self.pill_layout = QHBoxLayout(self.pill_bar)
+        self.pill_layout.setContentsMargins(4, 0, 4, 0)
+        self.pill_layout.setSpacing(6)
+
+        # Symmetrical Spacers to center elements perfectly in Idle state
+        self.spacer_left = QtWidgets.QSpacerItem(10, 0, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+        self.pill_layout.addItem(self.spacer_left)
 
         # Left: Soft Pastel Indicator Dot / Spinner / Checkmark
         self.lbl_dot = QLabel("●", self.pill_bar)
-        pill_layout.addWidget(self.lbl_dot)
+        self.lbl_dot.setAlignment(Qt.AlignCenter)
+        self.lbl_dot.installEventFilter(self)
+        self.pill_layout.addWidget(self.lbl_dot)
 
-        # Center Identity Badge (SPARK 02 • QA)
+        # Center Identity Badge (SPARK 01 • CODER)
         self.lbl_badge = QLabel(self.pill_bar)
-        pill_layout.addWidget(self.lbl_badge)
+        self.lbl_badge.setAlignment(Qt.AlignCenter)
+        self.lbl_badge.installEventFilter(self)
+        self.pill_layout.addWidget(self.lbl_badge)
 
         # Activity summary label (Hidden in Idle, visible when horizontally stretched)
         self.lbl_activity = QLabel(self.task_text, self.pill_bar)
+        self.lbl_activity.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
         self.lbl_activity.setVisible(False)
-        pill_layout.addWidget(self.lbl_activity, stretch=1)
+        self.lbl_activity.installEventFilter(self)
+        self.pill_layout.addWidget(self.lbl_activity, stretch=2)
 
         # Model Pill Badge (e.g. 32B, visible when stretched)
         self.lbl_model_pill = QLabel("32B", self.pill_bar)
+        self.lbl_model_pill.setAlignment(Qt.AlignCenter)
         self.lbl_model_pill.setVisible(False)
-        pill_layout.addWidget(self.lbl_model_pill)
+        self.pill_layout.addWidget(self.lbl_model_pill)
 
         # Telemetry info (Hidden in Idle, visible when stretched)
         self.lbl_telem = QLabel(self.gpu_text, self.pill_bar)
+        self.lbl_telem.setAlignment(Qt.AlignCenter)
         self.lbl_telem.setVisible(False)
-        pill_layout.addWidget(self.lbl_telem)
+        self.pill_layout.addWidget(self.lbl_telem)
 
         # Soft Expand Arrow / Toggle
         self.btn_toggle = QPushButton("▾", self.pill_bar)
         self.btn_toggle.setFixedSize(18, 18)
         self.btn_toggle.setCursor(QCursor(Qt.PointingHandCursor))
         self.btn_toggle.clicked.connect(self._toggle_expanded)
-        pill_layout.addWidget(self.btn_toggle)
+        self.pill_layout.addWidget(self.btn_toggle)
 
-        self.master_layout.addWidget(self.pill_bar)
+        # Right Symmetrical Spacer for Idle Mode Centering
+        self.spacer_right = QtWidgets.QSpacerItem(10, 0, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+        self.pill_layout.addItem(self.spacer_right)
 
-        # ── 2. TASK DONE NOTIFICATION DROPLET CARD (Drops Down) ──────────
-        self.done_card = QWidget(self)
+        self.capsule_layout.addWidget(self.pill_bar)
+
+        # ── 2. TASK DONE NOTIFICATION DROPLET CARD (Drops Down, Perfectly Centered) ──
+        self.done_card = QWidget(self.capsule)
         self.done_card.setVisible(False)
+        self.done_card.installEventFilter(self)
         done_layout = QVBoxLayout(self.done_card)
-        done_layout.setContentsMargins(6, 4, 6, 6)
+        done_layout.setContentsMargins(10, 6, 10, 6)
         done_layout.setSpacing(4)
+        done_layout.setAlignment(Qt.AlignCenter)
 
-        # Row 1: Checkmark + "TASK COMPLETED • SYNCED TO VAULT"
+        # Row 1: Checkmark + "TASK COMPLETED • SYNCED TO VAULT" (Centered)
         row1 = QHBoxLayout()
         row1.setContentsMargins(0, 0, 0, 0)
         row1.setSpacing(6)
+        row1.addStretch(1)
 
         self.lbl_done_tick = QLabel("✓", self.done_card)
         self.lbl_done_tick.setStyleSheet("color: #34D399; font-size: 13px; font-weight: 900;")
+        self.lbl_done_tick.setAlignment(Qt.AlignCenter)
         row1.addWidget(self.lbl_done_tick)
 
         self.lbl_done_header = QLabel("TASK COMPLETED • SYNCED TO VAULT", self.done_card)
@@ -623,31 +720,35 @@ class DynamicIslandWidget(QWidget):
             "color: #F8FAFC; font-size: 10px; font-weight: 700; letter-spacing: 0.6px; "
             "font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', sans-serif;"
         )
+        self.lbl_done_header.setAlignment(Qt.AlignCenter)
         row1.addWidget(self.lbl_done_header)
-        row1.addStretch()
+        row1.addStretch(1)
         done_layout.addLayout(row1)
 
-        # Row 2: File Icon + Details
+        # Row 2: File Icon + Details (Centered)
         row2 = QHBoxLayout()
-        row2.setContentsMargins(4, 0, 0, 0)
+        row2.setContentsMargins(0, 0, 0, 0)
         row2.setSpacing(6)
+        row2.addStretch(1)
 
         self.lbl_done_icon = QLabel("📁", self.done_card)
         self.lbl_done_icon.setStyleSheet("font-size: 11px;")
+        self.lbl_done_icon.setAlignment(Qt.AlignCenter)
         row2.addWidget(self.lbl_done_icon)
 
         self.lbl_done_details = QLabel("solution.py (2.4 KB)  •  qwen2.5-coder:32b", self.done_card)
         self.lbl_done_details.setStyleSheet(
-            "color: #94A3B8; font-size: 10px; font-weight: 500; font-family: 'SF Mono', Consolas, monospace;"
+            "color: #CBD5E1; font-size: 10px; font-weight: 500; font-family: 'SF Mono', Consolas, monospace;"
         )
+        self.lbl_done_details.setAlignment(Qt.AlignCenter)
         row2.addWidget(self.lbl_done_details)
-        row2.addStretch()
+        row2.addStretch(1)
         done_layout.addLayout(row2)
 
-        self.master_layout.addWidget(self.done_card)
+        self.capsule_layout.addWidget(self.done_card)
 
         # ── 3. EXPANDED CONTROL HUB CONTAINER ────────────────────────────
-        self.hub_container = QWidget(self)
+        self.hub_container = QWidget(self.capsule)
         self.hub_container.setVisible(False)
         hub_layout = QVBoxLayout(self.hub_container)
         hub_layout.setContentsMargins(6, 8, 6, 4)
@@ -685,16 +786,17 @@ class DynamicIslandWidget(QWidget):
         self.tab_widget.addTab(self.tab_telemetry, "Telemetry")
 
         hub_layout.addWidget(self.tab_widget)
-        self.master_layout.addWidget(self.hub_container)
+        self.capsule_layout.addWidget(self.hub_container)
 
         self._apply_theme_styles()
+        self._sync_capsule_geometry()
 
     def _apply_theme_styles(self):
         p_hex = self.theme["hex"]
         p_dim = self.theme["hex_dim"]
         p_col = self.theme["primary"]
         p_border = f"rgba({p_col.red()}, {p_col.green()}, {p_col.blue()}, 0.38)"
-        role_tag = "CODER" if "1" in self.node_id else ("QA/REVIEW" if "2" in self.node_id else self.theme.get("tag", "NODE").upper())
+        role_tag = "CODER" if "1" in self.node_id else ("QA" if "2" in self.node_id else ("VISION" if "3" in self.node_id else ("REASON" if "4" in self.node_id else ("SEC" if "5" in self.node_id else self.theme.get("tag", "NODE").upper()))))
         num = "01" if "1" in self.node_id else ("02" if "2" in self.node_id else self.node_id.replace("dgx-node-", ""))
 
         # Glowing Indicator Pip / Spinner
@@ -714,14 +816,25 @@ class DynamicIslandWidget(QWidget):
             "font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', sans-serif;"
         )
 
-        # Model Pill Tag (32B / 70B etc.)
+        # Model Pill Tag (32B / 70B / 90B / 141B etc.)
         short_model = "32B"
-        if "70b" in self.active_model.lower():
+        m_lower = self.active_model.lower()
+        if "90b" in m_lower:
+            short_model = "90B"
+        elif "8x22b" in m_lower or "22b" in m_lower:
+            short_model = "141B"
+        elif "72b" in m_lower:
+            short_model = "72B"
+        elif "70b" in m_lower:
             short_model = "70B"
-        elif "16b" in self.active_model.lower():
+        elif "32b" in m_lower:
+            short_model = "32B"
+        elif "16b" in m_lower:
             short_model = "16B"
-        elif "8x22b" in self.active_model.lower():
-            short_model = "22B"
+        elif "14b" in m_lower:
+            short_model = "14B"
+        elif "8b" in m_lower or "7b" in m_lower:
+            short_model = "8B"
         self.lbl_model_pill.setText(short_model)
         self.lbl_model_pill.setStyleSheet(
             f"background: rgba(255, 255, 255, 0.06); color: {p_hex}; border: 1px solid {p_border}; "
@@ -749,22 +862,28 @@ class DynamicIslandWidget(QWidget):
             f"font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', sans-serif;"
         )
 
-        # Tab Widget
+        # Tab Widget Frosted Glassmorphism
         self.tab_widget.setStyleSheet(
-            f"QTabWidget::pane {{ border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 12px; background: rgba(12, 16, 24, 0.95); }} "
-            f"QTabBar::tab {{ background: rgba(20, 25, 36, 0.6); color: #94a3b8; padding: 6px 18px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-size: 10.5px; font-weight: 600; margin-right: 4px; font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; }} "
-            f"QTabBar::tab:selected {{ background: {p_dim}; color: {p_hex}; border: 1px solid rgba(255, 255, 255, 0.12); border-bottom: none; }} "
-            f"QTabBar::tab:hover {{ color: #ffffff; background: rgba(30, 38, 54, 0.7); }}"
+            f"QTabWidget::pane {{ border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; background: rgba(14, 18, 28, 0.70); }} "
+            f"QTabBar::tab {{ background: rgba(22, 28, 42, 0.50); color: #94a3b8; padding: 6px 18px; border-top-left-radius: 8px; border-top-right-radius: 8px; font-size: 10.5px; font-weight: 600; margin-right: 4px; font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; }} "
+            f"QTabBar::tab:selected {{ background: {p_dim}; color: {p_hex}; border: 1px solid rgba(255, 255, 255, 0.18); border-bottom: none; }} "
+            f"QTabBar::tab:hover {{ color: #ffffff; background: rgba(36, 44, 64, 0.65); }}"
         )
+
+    def update_node(self, node_id: str):
+        self.node_id = node_id
+        self.theme = get_node_theme(node_id)
+        self._apply_theme_styles()
+        self.update()
 
     def _init_tab_work(self):
         layout = QVBoxLayout(self.tab_work)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
-        # Task banner
+        # Task banner (Frosted Glass Card)
         self.banner = QFrame(self.tab_work)
-        self.banner.setStyleSheet("background: rgba(22, 27, 38, 0.6); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 6px;")
+        self.banner.setStyleSheet("background: rgba(26, 32, 48, 0.55); border: 1px solid rgba(255, 255, 255, 0.10); border-radius: 8px;")
         b_lay = QHBoxLayout(self.banner)
         b_lay.setContentsMargins(8, 4, 8, 4)
 
@@ -779,15 +898,15 @@ class DynamicIslandWidget(QWidget):
 
         layout.addWidget(self.banner)
 
-        # Console text
+        # Console text (Frosted Translucent Terminal)
         self.console = QTextEdit(self.tab_work)
         self.console.setReadOnly(True)
         self.console.setLineWrapMode(QTextEdit.WidgetWidth)
         self.console.setStyleSheet(
-            "QTextEdit { background: #080a0f; color: #e2e8f0; font-family: 'SF Mono', Consolas, monospace; "
-            "font-size: 10.5px; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 6px; } "
-            "QScrollBar:vertical { background: #0c0f16; width: 6px; } "
-            "QScrollBar::handle:vertical { background: #1e2533; border-radius: 3px; }"
+            "QTextEdit { background: rgba(10, 13, 22, 0.65); color: #f1f5f9; font-family: 'SF Mono', Consolas, monospace; "
+            "font-size: 10.5px; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 8px; } "
+            "QScrollBar:vertical { background: rgba(12, 15, 24, 0.4); width: 6px; } "
+            "QScrollBar::handle:vertical { background: rgba(255, 255, 255, 0.18); border-radius: 3px; }"
         )
         self.console.append(f"[AEGIS] {self.theme['name']} connected.\n")
         layout.addWidget(self.console, stretch=1)
@@ -795,7 +914,7 @@ class DynamicIslandWidget(QWidget):
         # Clear button
         b_row = QHBoxLayout()
         btn_clr = QPushButton("Clear", self.tab_work)
-        btn_clr.setStyleSheet("background: #19202d; color: #94a3b8; border-radius: 5px; padding: 2px 8px; font-size: 9px;")
+        btn_clr.setStyleSheet("background: rgba(25, 32, 45, 0.6); color: #94a3b8; border-radius: 5px; padding: 2px 8px; font-size: 9px;")
         btn_clr.clicked.connect(self.console.clear)
         b_row.addWidget(btn_clr)
         b_row.addStretch()
@@ -816,7 +935,7 @@ class DynamicIslandWidget(QWidget):
             thm = get_node_theme(nid)
             self.cb_node.addItem(f"{nid.upper()} ({thm['tag']})")
         self.cb_node.setStyleSheet(
-            f"QComboBox {{ background: #131722; color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.1); "
+            f"QComboBox {{ background: rgba(19, 23, 34, 0.7); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.12); "
             f"border-radius: 6px; padding: 3px 8px; font-size: 10.5px; min-width: 200px; }} "
             f"QComboBox QAbstractItemView {{ background: #0c0f16; color: #f8fafc; }}"
         )
@@ -831,9 +950,17 @@ class DynamicIslandWidget(QWidget):
         l2 = QLabel("Model:", self.tab_settings)
         l2.setStyleSheet("color: #cbd5e1; font-size: 10.5px; font-weight: 600;")
         self.cb_model = QComboBox(self.tab_settings)
-        self.cb_model.addItems(["qwen2.5-coder:32b", "llama3.3:70b", "deepseek-coder-v2:16b", "mixtral:8x22b-instruct"])
+        self.FLAGSHIP_MODELS = [
+            "qwen2.5-coder:32b",
+            "llama3.2-vision:90b",
+            "mixtral:8x22b",
+            "llama3.3:70b",
+            "deepseek-r1:70b",
+            "qwen2.5:72b"
+        ]
+        self.cb_model.addItems(self.FLAGSHIP_MODELS)
         self.cb_model.setStyleSheet(
-            f"QComboBox {{ background: #131722; color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.1); "
+            f"QComboBox {{ background: rgba(19, 23, 34, 0.7); color: #f8fafc; border: 1px solid rgba(255, 255, 255, 0.12); "
             f"border-radius: 6px; padding: 3px 8px; font-size: 10.5px; min-width: 200px; }} "
             f"QComboBox QAbstractItemView {{ background: #0c0f16; color: #f8fafc; }}"
         )
@@ -857,9 +984,9 @@ class DynamicIslandWidget(QWidget):
         layout.setSpacing(10)
 
         grid = QHBoxLayout()
-        # Card 1: GPU
+        # Card 1: GPU (Frosted Glass Card)
         c1 = QFrame(self.tab_telemetry)
-        c1.setStyleSheet("background: #11151f; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 8px;")
+        c1.setStyleSheet("background: rgba(20, 26, 40, 0.55); border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 10px; padding: 10px;")
         l1 = QVBoxLayout(c1)
         t1 = QLabel("Compute Load", c1)
         t1.setStyleSheet("color: #64748b; font-size: 9.5px; font-weight: 600;")
@@ -869,9 +996,9 @@ class DynamicIslandWidget(QWidget):
         l1.addWidget(self.lbl_gpu_val)
         grid.addWidget(c1)
 
-        # Card 2: Temp
+        # Card 2: Temp (Frosted Glass Card)
         c2 = QFrame(self.tab_telemetry)
-        c2.setStyleSheet("background: #11151f; border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 8px;")
+        c2.setStyleSheet("background: rgba(20, 26, 40, 0.55); border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 10px; padding: 10px;")
         l2 = QVBoxLayout(c2)
         t2 = QLabel("GPU Temperature", c2)
         t2.setStyleSheet("color: #64748b; font-size: 9.5px; font-weight: 600;")
@@ -890,10 +1017,12 @@ class DynamicIslandWidget(QWidget):
         self.node_switched.emit(nid)
 
     def _on_model_pick(self, idx):
-        models = ["qwen2.5-coder:32b", "llama3.3:70b", "deepseek-coder-v2:16b", "mixtral:8x22b-instruct"]
+        models = getattr(self, "FLAGSHIP_MODELS", ["qwen2.5-coder:32b", "llama3.2-vision:90b", "mixtral:8x22b", "llama3.3:70b"])
         chosen = models[idx] if idx < len(models) else "qwen2.5-coder:32b"
         self.active_model = chosen
         self.model_changed.emit(chosen)
+        self._apply_theme_styles()
+        self.update()
 
     def _toggle_expanded(self):
         if self.state == self.STATE_EXPANDED:
@@ -902,17 +1031,14 @@ class DynamicIslandWidget(QWidget):
             self.transition_to(self.STATE_EXPANDED)
 
     def transition_to(self, new_state: int):
-        if self.is_animating or self.state == new_state:
+        if self.state == new_state and not self.is_animating:
             return
 
-        self.is_animating = True
         self.target_state = new_state
-        self.anim_step = 0
-        self.start_w, self.start_h = self.cur_w, self.cur_h
+        self.is_animating = True
 
-        # Immediately hide complex child views so shrinking animation stays smooth & clean
         if new_state == self.STATE_PILL_IDLE:
-            self.target_w, self.target_h = self.dim_pill_idle
+            target_w, target_h = self.dim_pill_idle
             self.hub_container.setVisible(False)
             self.done_card.setVisible(False)
             self.lbl_activity.setVisible(False)
@@ -920,13 +1046,21 @@ class DynamicIslandWidget(QWidget):
             self.lbl_telem.setVisible(False)
             self.lbl_dot.setText("●")
             self.btn_toggle.setText("▾")
+            if hasattr(self, "spacer_left") and hasattr(self, "spacer_right"):
+                self.spacer_left.changeSize(10, 0, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+                self.spacer_right.changeSize(10, 0, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
+                self.pill_layout.invalidate()
         elif new_state == self.STATE_PILL_BUSY:
-            self.target_w, self.target_h = self.dim_pill_busy
+            target_w, target_h = self.dim_pill_busy
             self.hub_container.setVisible(False)
             self.done_card.setVisible(False)
             self.btn_toggle.setText("▾")
+            if hasattr(self, "spacer_left") and hasattr(self, "spacer_right"):
+                self.spacer_left.changeSize(0, 0, QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Minimum)
+                self.spacer_right.changeSize(0, 0, QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Minimum)
+                self.pill_layout.invalidate()
         elif new_state == self.STATE_ALERT_DONE:
-            self.target_w, self.target_h = self.dim_alert_done
+            target_w, target_h = self.dim_alert_done
             self.hub_container.setVisible(False)
             self.lbl_activity.setVisible(False)
             self.lbl_model_pill.setVisible(False)
@@ -934,50 +1068,57 @@ class DynamicIslandWidget(QWidget):
             self.lbl_dot.setText("✓")
             self.btn_toggle.setText("▾")
         elif new_state == self.STATE_EXPANDED:
-            self.target_w, self.target_h = self.dim_expanded
+            target_w, target_h = self.dim_expanded
             self.done_card.setVisible(False)
             self.btn_toggle.setText("▴")
 
-        self.anim_timer.start(16)
+        self.spring_w.set_target(target_w)
+        self.spring_h.set_target(target_h)
+        if not self.physics_timer.isActive():
+            self.physics_timer.start(16)
 
-    def _animation_tick(self):
-        self.anim_step += 1
-        t = self.anim_step / float(self.anim_total)
-        # Fluid Ease-In Ease-Out (C2-continuous smootherstep polynomial)
-        ease = ease_in_out(t)
+    def _physics_tick(self):
+        settled_w = self.spring_w.update(0.016)
+        settled_h = self.spring_h.update(0.016)
 
-        new_w = int(self.start_w + (self.target_w - self.start_w) * ease)
-        new_h = int(self.start_h + (self.target_h - self.start_h) * ease)
+        self._sync_capsule_geometry()
 
-        if new_w != self.cur_w or new_h != self.cur_h:
-            self.cur_w = new_w
-            self.cur_h = new_h
-            self.setFixedSize(self.cur_w, self.cur_h)
-            self._reposition_center()
+        cur_h = self.spring_h.val
+        if self.target_state == self.STATE_EXPANDED and cur_h >= 180:
+            if not self.hub_container.isVisible():
+                self.hub_container.setVisible(True)
+        elif self.target_state == self.STATE_ALERT_DONE and cur_h >= 65:
+            if not self.done_card.isVisible():
+                self.done_card.setVisible(True)
 
-        if self.anim_step >= self.anim_total:
-            self.anim_timer.stop()
+        self.update()
+
+        if settled_w and settled_h:
+            self.physics_timer.stop()
             self.is_animating = False
             self.state = self.target_state
-            self.cur_w, self.cur_h = self.target_w, self.target_h
-            self.setFixedSize(self.cur_w, self.cur_h)
-            self._reposition_center()
+            self._finalize_state()
 
-            if self.state == self.STATE_EXPANDED:
-                self.hub_container.setVisible(True)
-            elif self.state == self.STATE_ALERT_DONE:
-                self.done_card.setVisible(True)
-            elif self.state == self.STATE_PILL_BUSY:
-                self.lbl_activity.setVisible(True)
-                self.lbl_model_pill.setVisible(True)
-                self.lbl_telem.setVisible(True)
-            elif self.state == self.STATE_PILL_IDLE:
-                self.lbl_activity.setVisible(False)
-                self.lbl_model_pill.setVisible(False)
-                self.lbl_telem.setVisible(False)
-                self.done_card.setVisible(False)
-                self.hub_container.setVisible(False)
-            self.update()
+    def _finalize_state(self):
+        if self.state == self.STATE_EXPANDED:
+            self.hub_container.setVisible(True)
+            self.done_card.setVisible(False)
+        elif self.state == self.STATE_ALERT_DONE:
+            self.done_card.setVisible(True)
+            self.hub_container.setVisible(False)
+        elif self.state == self.STATE_PILL_BUSY:
+            self.lbl_activity.setVisible(True)
+            self.lbl_model_pill.setVisible(True)
+            self.lbl_telem.setVisible(True)
+            self.done_card.setVisible(False)
+            self.hub_container.setVisible(False)
+        elif self.state == self.STATE_PILL_IDLE:
+            self.lbl_activity.setVisible(False)
+            self.lbl_model_pill.setVisible(False)
+            self.lbl_telem.setVisible(False)
+            self.done_card.setVisible(False)
+            self.hub_container.setVisible(False)
+        self.update()
 
     def _pulse_tick(self):
         self.spinner_phase = (self.spinner_phase + 0.12) % (2 * math.pi)
@@ -1023,14 +1164,15 @@ class DynamicIslandWidget(QWidget):
                         self.lbl_done_details.setText(f"{title}  •  {self.active_model}")
                     else:
                         self.lbl_done_details.setText(f"Code Synced to Vault  •  {self.active_model}")
-                    if self.state != self.STATE_EXPANDED:
-                        self.transition_to(self.STATE_ALERT_DONE)
-                        # Apple 3.5s Notification card -> recoil smoothly to thin Idle capsule
-                        QTimer.singleShot(3500, self._auto_collapse_to_idle)
+                    self.transition_to(self.STATE_ALERT_DONE)
+                    # Smooth auto-collapse to idle after 4 seconds
+                    QTimer.singleShot(4000, self._auto_collapse_to_idle)
                 else: # "ONLINE", "IDLE", "LOCKED", etc.
                     self.is_busy = False
                     self.lbl_activity.setText("Standing by")
-                    if self.state == self.STATE_PILL_BUSY:
+                    if self.state in [self.STATE_EXPANDED, self.STATE_ALERT_DONE]:
+                        pass
+                    elif self.state == self.STATE_PILL_BUSY:
                         self.transition_to(self.STATE_PILL_IDLE)
             elif kind == "expand":
                 if data:
@@ -1041,7 +1183,6 @@ class DynamicIslandWidget(QWidget):
                 self._toggle_expanded()
             elif kind == "telemetry":
                 self.gpu_text = data
-                # Extract compact GPU percent for pill mode
                 gpu_short = "GPU 0%"
                 try:
                     if "GPU:" in data:
@@ -1060,16 +1201,81 @@ class DynamicIslandWidget(QWidget):
                 self.lbl_telem.setText(gpu_short)
 
     def _auto_collapse_to_idle(self):
-        if not self.is_busy and self.state == self.STATE_ALERT_DONE:
+        if not self.is_busy:
             self.transition_to(self.STATE_PILL_IDLE)
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            if watched in [self.capsule, self.pill_bar, self.lbl_badge, self.lbl_dot, self.lbl_activity, self.done_card]:
+                self._drag_active = True
+                self._drag_start_pos = event.globalPos()
+                self._window_start_pos = self.pos()
+                self._moved = False
+                self.setCursor(QCursor(Qt.ClosedHandCursor))
+                return True
+        elif event.type() == QEvent.MouseMove and (event.buttons() & Qt.LeftButton):
+            if self._drag_active:
+                delta = event.globalPos() - self._drag_start_pos
+                if delta.manhattanLength() > 4:
+                    self._moved = True
+                    self.move(self._window_start_pos + delta)
+                return True
+        elif event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+            if self._drag_active:
+                self._drag_active = False
+                self.setCursor(QCursor(Qt.ArrowCursor))
+                if not self._moved:
+                    if self.state in [self.STATE_PILL_IDLE, self.STATE_PILL_BUSY, self.STATE_ALERT_DONE]:
+                        self.transition_to(self.STATE_EXPANDED)
+                    elif self.state == self.STATE_EXPANDED and event.pos().y() <= 36:
+                        self.transition_to(self.STATE_PILL_BUSY if self.is_busy else self.STATE_PILL_IDLE)
+                return True
+        return super().eventFilter(watched, event)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            if self.state in [self.STATE_PILL_IDLE, self.STATE_PILL_BUSY, self.STATE_ALERT_DONE]:
-                self.transition_to(self.STATE_EXPANDED)
-                event.accept()
+            cur_w = float(self.spring_w.val)
+            cur_h = float(self.spring_h.val)
+            capsule_x = (self.VIEWPORT_W - cur_w) / 2.0
+            capsule_y = 6.0
+            capsule_rect = QRectF(capsule_x, capsule_y, cur_w, cur_h)
+
+            if not capsule_rect.contains(event.pos()):
+                event.ignore()
                 return
+
+            self._drag_active = True
+            self._drag_start_pos = event.globalPos()
+            self._window_start_pos = self.pos()
+            self._moved = False
+            self.setCursor(QCursor(Qt.ClosedHandCursor))
+            event.accept()
+            return
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._drag_active and (event.buttons() & Qt.LeftButton):
+            delta = event.globalPos() - self._drag_start_pos
+            if delta.manhattanLength() > 4:
+                self._moved = True
+                self.move(self._window_start_pos + delta)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self._drag_active:
+            self._drag_active = False
+            self.setCursor(QCursor(Qt.ArrowCursor))
+            if not self._moved:
+                cur_y = 6.0
+                if self.state in [self.STATE_PILL_IDLE, self.STATE_PILL_BUSY, self.STATE_ALERT_DONE]:
+                    self.transition_to(self.STATE_EXPANDED)
+                elif self.state == self.STATE_EXPANDED and event.pos().y() <= cur_y + 36:
+                    self.transition_to(self.STATE_PILL_BUSY if self.is_busy else self.STATE_PILL_IDLE)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -1077,71 +1283,90 @@ class DynamicIslandWidget(QWidget):
         painter.setRenderHint(QPainter.TextAntialiasing)
         painter.setRenderHint(QPainter.SmoothPixmapTransform)
 
-        w = float(self.width())
-        h = float(self.height())
-        rect = QRectF(1.5, 1.5, w - 3, h - 3)
+        cur_w = float(self.spring_w.val)
+        cur_h = float(self.spring_h.val)
+        capsule_x = (self.VIEWPORT_W - cur_w) / 2.0
+        capsule_y = 6.0
+        rect = QRectF(capsule_x + 1.5, capsule_y + 1.5, cur_w - 3.0, cur_h - 3.0)
 
-        # Dynamic corner radius: Apple pill mode = fully rounded capsule (h/2), Done card = 20px, Hub = 18px
-        if self.state in [self.STATE_PILL_IDLE, self.STATE_PILL_BUSY]:
-            radius = h / 2.0
-        elif self.state == self.STATE_ALERT_DONE:
-            radius = 20.0
+        # Dynamic continuous corner radius:
+        # Morph smoothly from full pill capsule (half height) to card radius (20px) / hub radius (18px)
+        if cur_h <= 40.0:
+            radius = cur_h / 2.0
+        elif cur_h <= 120.0:
+            t = (cur_h - 40.0) / 80.0
+            radius = (1.0 - t) * (cur_h / 2.0) + t * 20.0
         else:
             radius = 18.0
 
         p_col = self.theme["primary"]
 
-        # 1. Ambient Soft Pastel Aura (Breathes softly on busy / alert done)
-        glow_alpha = 36 if self.is_busy else (30 if self.state == self.STATE_ALERT_DONE else 14)
+        # 1. Outer Ambient Soft Pastel Aura (Diffused Apple Glow)
+        glow_alpha = 50 if self.is_busy else (44 if self.state == self.STATE_ALERT_DONE else 24)
         glow_color = QColor(p_col.red(), p_col.green(), p_col.blue(), glow_alpha)
         painter.setPen(QPen(glow_color, 2.5))
         painter.setBrush(Qt.NoBrush)
-        painter.drawRoundedRect(rect, radius, radius)
+        painter.drawRoundedRect(rect.adjusted(-1.5, -1.5, 1.5, 1.5), radius + 1.5, radius + 1.5)
 
-        # 2. Dark Frosted Obsidian Glass Body
-        bg_grad = QLinearGradient(0, 0, 0, h)
-        bg_grad.setColorAt(0.0, QColor(16, 21, 31, 248))
-        bg_grad.setColorAt(0.4, QColor(10, 14, 22, 252))
-        bg_grad.setColorAt(1.0, QColor(7, 9, 15, 255))
+        # 2. Translucent Frosted Glass Body (Optical Glassmorphism)
+        bg_grad = QLinearGradient(capsule_x, capsule_y, capsule_x, capsule_y + cur_h)
+        bg_grad.setColorAt(0.0, QColor(22, 28, 42, 210))
+        bg_grad.setColorAt(0.35, QColor(14, 18, 28, 195))
+        bg_grad.setColorAt(1.0, QColor(8, 10, 18, 225))
         painter.setBrush(QBrush(bg_grad))
         painter.setPen(Qt.NoPen)
         painter.drawRoundedRect(rect, radius, radius)
 
-        # 3. Apple Specular Top Rim Highlight (Optical glass depth)
+        # 3. Apple Specular Top Rim Highlight (Optical glass refraction depth)
         spec_path = QPainterPath()
         spec_path.addRoundedRect(rect, radius, radius)
         painter.save()
         painter.setClipPath(spec_path)
-        spec_grad = QLinearGradient(0, 0, 0, min(14.0, h * 0.45))
-        spec_grad.setColorAt(0.0, QColor(255, 255, 255, 36))
+
+        spec_h = min(24.0, cur_h * 0.55)
+        spec_grad = QLinearGradient(capsule_x, capsule_y, capsule_x, capsule_y + spec_h)
+        spec_grad.setColorAt(0.0, QColor(255, 255, 255, 85))
+        spec_grad.setColorAt(0.25, QColor(255, 255, 255, 25))
         spec_grad.setColorAt(1.0, QColor(255, 255, 255, 0))
         painter.setBrush(QBrush(spec_grad))
         painter.setPen(Qt.NoPen)
-        painter.drawRect(QRectF(0, 0, w, 14))
+        painter.drawRect(QRectF(capsule_x, capsule_y, cur_w, spec_h))
+
+        # Soft pastel tint across the glass interior
+        tint_col = QColor(p_col.red(), p_col.green(), p_col.blue(), 18)
+        painter.setBrush(QBrush(tint_col))
+        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), radius - 1, radius - 1)
         painter.restore()
 
-        # 4. Delicate Specular Border (Apple pastel style)
-        border_col = self.theme["border"] if (self.is_busy or self.state == self.STATE_ALERT_DONE) else QColor(255, 255, 255, 24)
-        painter.setPen(QPen(border_col, 1.1))
+        # 4. Multi-Stop Specular Glass Rim Border
+        if self.is_busy or self.state == self.STATE_ALERT_DONE:
+            border_pen = QPen(QColor(p_col.red(), p_col.green(), p_col.blue(), 160), 1.2)
+        else:
+            border_grad = QLinearGradient(capsule_x, capsule_y, capsule_x, capsule_y + cur_h)
+            border_grad.setColorAt(0.0, QColor(255, 255, 255, 95))
+            border_grad.setColorAt(0.35, QColor(255, 255, 255, 35))
+            border_grad.setColorAt(1.0, QColor(p_col.red(), p_col.green(), p_col.blue(), 75))
+            border_pen = QPen(QBrush(border_grad), 1.0)
+        painter.setPen(border_pen)
         painter.setBrush(Qt.NoBrush)
         painter.drawRoundedRect(rect, radius, radius)
 
-        # 5. Subtle Pastel Progress Scanner Wave (When busy)
+        # 5. Subtle Pastel Progress Scanner Wave (When busy in pill mode)
         if self.is_busy and self.state == self.STATE_PILL_BUSY:
             scan_path = QPainterPath()
             scan_path.addRoundedRect(rect, radius, radius)
             painter.save()
             painter.setClipPath(scan_path)
 
-            wave_x = (math.sin(self.wave_phase) * 0.5 + 0.5) * w
-            wave_grad = QLinearGradient(wave_x - 90, 0, wave_x + 90, 0)
+            wave_center = capsule_x + (math.sin(self.wave_phase) * 0.5 + 0.5) * cur_w
+            wave_grad = QLinearGradient(wave_center - 90, 0, wave_center + 90, 0)
             wave_grad.setColorAt(0.0, QColor(p_col.red(), p_col.green(), p_col.blue(), 0))
-            wave_grad.setColorAt(0.5, QColor(p_col.red(), p_col.green(), p_col.blue(), 110))
+            wave_grad.setColorAt(0.5, QColor(p_col.red(), p_col.green(), p_col.blue(), 125))
             wave_grad.setColorAt(1.0, QColor(p_col.red(), p_col.green(), p_col.blue(), 0))
 
             painter.setPen(Qt.NoPen)
             painter.setBrush(QBrush(wave_grad))
-            painter.drawRect(QRectF(wave_x - 90, h - 2.5, 180, 2.5))
+            painter.drawRect(QRectF(wave_center - 90, capsule_y + cur_h - 2.5, 180, 2.5))
             painter.restore()
 
 
@@ -1174,6 +1399,7 @@ class AegisMasterHUD(QObject):
 
         self.orb = None
         self.island = None
+        self.current_status = "ONLINE"
         self._init_components()
 
     def run_main_loop(self, worker_func=None):
@@ -1205,6 +1431,7 @@ class AegisMasterHUD(QObject):
             print(f"[!] AegisMasterHUD init error: {e}")
 
     def _on_island_status_changed(self, status: str):
+        self.current_status = status
         if self.orb:
             self.orb.set_busy(status in ["BUSY", "COMPUTING"])
 
@@ -1229,6 +1456,7 @@ class AegisMasterHUD(QObject):
         self.log_queue.put(("log", (text, tag)))
 
     def update_status(self, status: str, title: str = "", task_title: str = "", **kwargs):
+        self.current_status = status
         final_title = task_title or title
         self.log_queue.put(("status", (status, final_title)))
 
@@ -1703,6 +1931,98 @@ def http_post_json(url: str, data: dict, timeout: float = 6.0) -> dict:
     except Exception as e:
         return {"error": str(e)}
 
+def build_node_system_instruction(node_id: str, model_name: str = "") -> str:
+    """Builds deep-level role-tailored system guidelines and inter-agent collaboration protocols
+    patched on top of the LLM for every DGX node in the AEGIS supercomputing cluster.
+    """
+    nid = node_id.lower().strip()
+    
+    # Universal AEGIS Multi-Agent & Storage Protocols
+    common_protocol = (
+        "\n\n=== AEGIS CLUSTER MULTI-AGENT & STORAGE PROTOCOLS ===\n"
+        "1. HARDWARE RUNTIME: You are running locally on an NVIDIA DGX Spark node with 128GB Unified Memory.\n"
+        "2. CONTEXT WINDOW: You have an expansive 65,536+ token context window. NEVER truncate, abbreviate, or use placeholders ('// ...', '/* TODO */', 'pass'). Always generate 100% complete, fully implemented code and documentation.\n"
+        "3. MULTI-FILE SYNTAX CONTRACT: When generating files, output EACH file in its own markdown code block (```language ... ```).\n"
+        "   The VERY FIRST line inside each code block MUST be the exact relative filename declaration:\n"
+        "   - Python: # filename: <name>.py\n"
+        "   - JavaScript/TypeScript/C++/C: // filename: <name>.<ext>\n"
+        "   - HTML/CSS: <!-- filename: <name>.html --> or /* filename: <name>.css */\n"
+        "   - Markdown/Docs: <!-- filename: <name>.md -->\n"
+        "   - Shell: # filename: <name>.sh\n"
+        "4. VAULT ARTIFACT CAPTURE: All output files are automatically detected, indexed in manifest.json, and vaulted to the central AEGIS Storage Server (http://100.88.197.6:9080). Do not write manual network upload or transfer scripts.\n"
+        "5. INTER-AGENT DEPENDENCY CONTRACT: Other DGX nodes consume your artifacts. Ensure clean interfaces, predictable exports, and standard entry points.\n"
+    )
+
+    if nid == "dgx-node-1":
+        role_prompt = (
+            "You are AEGIS DGX Spark Node 01: The LEAD SOFTWARE ARCHITECT & FULL-STACK CODER.\n"
+            "Specialization: Enterprise software engineering, core algorithms, microservices, and system implementation.\n"
+            "CORE DIRECTIVES:\n"
+            "- Design robust, production-ready software architectures with clean separation of concerns.\n"
+            "- Implement complete classes, methods, error handling, input validation, and type annotations.\n"
+            "- Structure code to be modular and import-friendly for Node 2's automated test suites.\n"
+            "- If dependencies are required, specify them cleanly (e.g. # filename: requirements.txt).\n"
+            "- Deliver clean, readable code with insightful comments explaining non-trivial logic."
+        )
+    elif nid == "dgx-node-2":
+        role_prompt = (
+            "You are AEGIS DGX Spark Node 02: The PRINCIPAL QA AUDITOR & ADVERSARIAL TEST VERIFIER.\n"
+            "Specialization: Code review, logic verification, vulnerability auditing, and automated test suite creation.\n"
+            "CORE DIRECTIVES:\n"
+            "- Critically inspect the provided code for edge cases, null pointers, race conditions, memory leaks, and performance bottlenecks.\n"
+            "- GENERATE COMPLETE RUNNABLE UNIT TESTS: Always write comprehensive test files (e.g. # filename: test_<module>.py) using pytest or unittest.\n"
+            "- Test happy paths, boundary inputs, zero-values, large inputs, and simulate error scenarios.\n"
+            "- Provide a structured QA Audit Report (# filename: QA_AUDIT_REPORT.md) containing:\n"
+            "  * Quality & Correctness Score (out of 100)\n"
+            "  * Vulnerability & Bug Analysis\n"
+            "  * Edge Cases Verified\n"
+            "  * Verification Verdict: [APPROVED] or [REVISION_REQUIRED]."
+        )
+    elif nid == "dgx-node-3":
+        role_prompt = (
+            "You are AEGIS DGX Spark Node 03: The MULTIMODAL VISION & VISUAL SYSTEMS SPECIALIST.\n"
+            "Specialization: Architectural diagrams, UI/UX glassmorphic designs, image parsing, visual schemas, and layout generation.\n"
+            "CORE DIRECTIVES:\n"
+            "- Convert complex system architectures into visual diagrams using Mermaid.js (`mermaid ... `), ASCII schemas, and Graphviz.\n"
+            "- When tasked with visual interfaces, write pristine, modern Vanilla CSS/HTML/JS designs featuring Apple-style glassmorphism, responsive flex/grid layouts, and vibrant dark themes.\n"
+            "- For image/diagram analysis requests, thoroughly decompose components, relationships, data flows, and spatial structures into structured JSON manifests."
+        )
+    elif nid == "dgx-node-4":
+        role_prompt = (
+            "You are AEGIS DGX Spark Node 04: The CHIEF SYSTEM ARCHITECT & DEEP REASONER.\n"
+            "Specialization: Deep multi-step reasoning, mathematical modeling, trade-off analysis, and comprehensive RFC specifications.\n"
+            "CORE DIRECTIVES:\n"
+            "- Apply rigorous step-by-step first-principles reasoning to break down complex engineering problems.\n"
+            "- Evaluate architectural trade-offs (e.g. consistency vs availability, latency vs throughput, memory footprint vs compute).\n"
+            "- Produce formal technical blueprints (# filename: SYSTEM_SPEC.md or ARCHITECTURE_RFC.md) with exact API schemas, database ERDs, concurrency models, and deployment topologies.\n"
+            "- Define the blueprint so Node 1 can immediately code the implementation and Node 2 can verify against the specification."
+        )
+    elif nid == "dgx-node-5":
+        role_prompt = (
+            "You are AEGIS DGX Spark Node 05: The CYBERSECURITY & VULNERABILITY AUDITOR.\n"
+            "Specialization: OWASP Top 10, penetration testing, CVE analysis, cryptographic verification, and privilege boundaries.\n"
+            "CORE DIRECTIVES: Analyze attack vectors, sanitize untrusted inputs, verify authentication/authorization flows, and harden code."
+        )
+    elif nid == "dgx-node-6":
+        role_prompt = (
+            "You are AEGIS DGX Spark Node 06: The GENERATIVE VISUAL & DESIGN STUDIO.\n"
+            "Specialization: Asset synthesis, visual prompts, SVG graphics, CSS animations, and creative media formatting."
+        )
+    elif nid == "dgx-node-7":
+        role_prompt = (
+            "You are AEGIS DGX Spark Node 07: The COMMUNICATION, GIT & TOOL AUTOMATION AGENT.\n"
+            "Specialization: Git workflow automation, API coordination, shell scripting, and multi-service deployment."
+        )
+    elif nid == "dgx-node-8":
+        role_prompt = (
+            "You are AEGIS DGX Spark Node 08: The DOCUMENT SYNTHESIZER & TECHNICAL PUBLISHER.\n"
+            "Specialization: Technical documentation, API reference guides, executive summaries, LaTeX/PDF formatting, and project handbooks."
+        )
+    else:
+        role_prompt = "You are an autonomous AI specialist executing tasks on an NVIDIA DGX Spark node."
+
+    return role_prompt + common_protocol
+
 class DGXStandaloneAgent:
     def __init__(self, node_id: str = "dgx-node-1",
                  gateway_url: str = "https://raspberrypi.tailc8c1f6.ts.net",
@@ -1852,22 +2172,13 @@ class DGXStandaloneAgent:
         """Queries local Ollama instance with high context window (up to 128K) and live HUD streaming."""
         chosen_model = model_name or self.default_model
         ctx = num_ctx or self.default_num_ctx
+        temp = 0.15 if "1" in self.node_id else (0.25 if "3" in self.node_id else 0.2)
 
-        print(f"\n[{self.node_id}] Querying model: {chosen_model} (Context Window: {ctx:,} tokens)...")
+        print(f"\n[{self.node_id}] Querying model: {chosen_model} (Context Window: {ctx:,} tokens | Temp: {temp})...")
         if self.hud:
-            self.hud.append_log(f"[{self.node_id}] Model: {chosen_model} | Context: {ctx:,} tokens | GPU: Active\n", "purple")
+            self.hud.append_log(f"[{self.node_id}] Model: {chosen_model} | Context: {ctx:,} tokens | Temp: {temp} | GPU: Active\n", "purple")
 
-        system_instruction = (
-            "You are an expert autonomous software engineer executing tasks on an NVIDIA DGX node with 128GB Unified Memory.\n"
-            "Generate complete, robust, production-quality code to fulfill the user's request.\n"
-            "When creating multiple files, output EACH file in its own markdown code block (```language ... ```).\n"
-            "On the very first line inside EACH code block, specify the exact filename as a comment:\n"
-            "- For Python: # filename: filename.py\n"
-            "- For JavaScript/TypeScript/C++/C: // filename: filename.js\n"
-            "- For HTML/CSS/SQL: /* filename: style.css */ or <!-- filename: index.html -->\n"
-            "Always output full, complete code without placeholders or ellipses ('// ...').\n"
-            "Do NOT include file upload code, network synchronization, or destination URLs; the autonomous runtime environment automatically captures and synchronizes all generated artifacts."
-        )
+        system_instruction = build_node_system_instruction(self.node_id, chosen_model)
 
         url = f"{self.ollama_url}/api/generate"
         payload = {
@@ -1878,7 +2189,7 @@ class DGXStandaloneAgent:
             "options": {
                 "num_ctx": ctx,            # 65,536 tokens by default!
                 "num_predict": 16384,      # Large generation output
-                "temperature": 0.2
+                "temperature": temp
             }
         }
 
@@ -1948,8 +2259,37 @@ class DGXStandaloneAgent:
                 last_error = str(e)
         return f"vault_sync_failed: {last_error}"
 
-    def extract_and_vault_files(self, stdout_log: str, prompt: str, task_id: str) -> list:
-        """Extracts all code blocks, names them cleanly, saves locally, and auto-vaults each file."""
+    def _verify_python_syntax(self, file_path: str) -> tuple:
+        """Verifies Python syntax without executing user code."""
+        try:
+            import py_compile
+            py_compile.compile(file_path, doraise=True)
+            return True, ""
+        except py_compile.PyCompileError as e:
+            return False, str(e).splitlines()[-1]
+        except Exception as e:
+            return False, str(e)
+
+    def _repair_code(self, code: str, error_msg: str, model_name: str) -> str:
+        """1-shot autonomous code repair when syntax fails."""
+        repair_prompt = (
+            f"The following Python code failed syntax validation with error:\n"
+            f"{error_msg}\n\n"
+            f"Original code:\n```python\n{code}\n```\n\n"
+            f"Please output ONLY the fixed, syntactically correct Python code inside a single ```python block."
+        )
+        try:
+            resp = self.execute_ollama_query(repair_prompt, model_name=model_name, num_ctx=32768)
+            pattern = re.compile(r"```(?:python)?\n(.*?)```", re.DOTALL)
+            m = pattern.search(resp)
+            if m:
+                return m.group(1).strip()
+        except Exception:
+            pass
+        return ""
+
+    def extract_and_vault_files(self, stdout_log: str, prompt: str, task_id: str, model_name: str = "qwen2.5-coder:32b") -> list:
+        """Extracts all code blocks, verifies syntax, self-heals errors, saves locally, and auto-vaults each file."""
         saved_files = []
         task_dir = os.path.join("./workspace", task_id)
         os.makedirs(task_dir, exist_ok=True)
@@ -1994,6 +2334,23 @@ class DGXStandaloneAgent:
                 with open(file_path, "w", encoding="utf-8") as f:
                     f.write(code)
 
+                # Autonomous Self-Healing: Verify syntax if python code
+                if ext == "py":
+                    syntax_ok, syntax_err = self._verify_python_syntax(file_path)
+                    if not syntax_ok:
+                        print(f"[!] Syntax warning in {filename}: {syntax_err}. Attempting 1-shot self-healing...")
+                        if self.hud:
+                            self.hud.append_log(f"[!] Syntax error in {filename}. Autonomous healing...\n", "amber")
+                        repaired = self._repair_code(code, syntax_err, model_name)
+                        if repaired:
+                            with open(file_path, "w", encoding="utf-8") as f:
+                                f.write(repaired)
+                            syntax_ok2, _ = self._verify_python_syntax(file_path)
+                            if syntax_ok2:
+                                print(f"[✓] Successfully self-healed {filename}!")
+                                if self.hud:
+                                    self.hud.append_log(f"[✓] Successfully self-healed {filename}!\n", "green")
+
                 vault_res = self.upload_to_i7_vault(file_path, task_id)
                 print(f"[✓] Auto-Vault: {filename} -> {vault_res}")
                 if self.hud:
@@ -2036,26 +2393,50 @@ class DGXStandaloneAgent:
             return
 
         task_id = task.get("task_id", f"tsk_{int(time.time())}")
-        prompt = task.get("prompt", "")
+        raw_prompt = task.get("prompt", "")
         model_name = task.get("model") or self.default_model
         num_ctx = int(task.get("num_ctx") or self.default_num_ctx)
         self.current_task_id = task_id
 
+        # Multi-Agent Context Injection: If parent task exists, inject its generated files
+        parent_id = task.get("parent_task_id")
+        context_files = []
+        if parent_id:
+            parent_dir = os.path.join("./workspace", parent_id)
+            if os.path.exists(parent_dir):
+                for f in os.listdir(parent_dir):
+                    if f.endswith((".py", ".json", ".md", ".txt")) and f != "manifest.json":
+                        fp = os.path.join(parent_dir, f)
+                        try:
+                            with open(fp, "r", encoding="utf-8", errors="ignore") as cfile:
+                                context_files.append((f, cfile.read()[:8000]))
+                        except Exception:
+                            pass
+
+        prompt = raw_prompt
+        if context_files:
+            ctx_block = "\n\n### Prior Stage Artifacts From Cluster Pipeline:\n"
+            for fn, content in context_files:
+                ctx_block += f"#### File: `{fn}`\n```\n{content}\n```\n"
+            prompt = prompt + ctx_block
+
         print("\n" + "=" * 65)
         print(f"[{self.node_id}] REVERSE HEARTBEAT TASK RECEIVED: {task_id}")
-        print(f"Prompt: {prompt}")
+        if parent_id:
+            print(f"Pipeline Stage from Parent Task: {parent_id}")
+        print(f"Prompt: {raw_prompt}")
         print(f"Model: {model_name} | Context: {num_ctx:,} tokens")
         print("=" * 65)
 
         if self.hud:
-            self.hud.update_status("BUSY", task_title=prompt)
-            self.hud.append_log(f"\n>>> [TASK {task_id}] Model: {model_name} (Ctx: {num_ctx:,})\nPrompt: {prompt}\n", "purple")
+            self.hud.update_status("BUSY", task_title=raw_prompt)
+            self.hud.append_log(f"\n>>> [TASK {task_id}] Model: {model_name} (Ctx: {num_ctx:,})\nPrompt: {raw_prompt}\n", "purple")
 
         # 1. Run inference on local GPU with high context window
         stdout_log = self.execute_ollama_query(prompt, model_name=model_name, num_ctx=num_ctx)
 
-        # 2. Extract all code files and silently auto-vault them to the Central PC Vault
-        vaulted_records = self.extract_and_vault_files(stdout_log, prompt, task_id)
+        # 2. Extract all code files, self-heal syntax, and silently auto-vault them
+        vaulted_records = self.extract_and_vault_files(stdout_log, raw_prompt, task_id, model_name=model_name)
 
         # 3. Report completion back to Raspberry Pi Gateway
         complete_payload = {
@@ -2238,6 +2619,41 @@ if __name__ == "__main__":
     parser.add_argument("--no-hud", action="store_true", help="Disable desktop screen overlay HUD")
     parser.add_argument("--background", "-b", "--detach", action="store_true", help="Run agent completely in the background without exposed terminal")
     args, unknown = parser.parse_known_args()
+
+    # Strict single-instance process lock per node to prevent duplicate agents
+    import tempfile
+    lock_file = os.path.join(tempfile.gettempdir(), f"aegis_agent_{args.id}.pid")
+    if os.path.exists(lock_file):
+        try:
+            with open(lock_file, "r") as f:
+                old_pid = int(f.read().strip())
+            if old_pid != os.getpid():
+                try:
+                    import psutil
+                    if psutil.pid_exists(old_pid):
+                        proc = psutil.Process(old_pid)
+                        if "dgx_agent" in " ".join(proc.cmdline()):
+                            print(f"[!] Terminating duplicate prior agent process (PID: {old_pid})...")
+                            proc.terminate()
+                            try:
+                                proc.wait(timeout=1.5)
+                            except Exception:
+                                proc.kill()
+                except Exception:
+                    if sys.platform != "win32":
+                        try:
+                            import signal
+                            os.kill(old_pid, signal.SIGKILL)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+    try:
+        with open(lock_file, "w") as f:
+            f.write(str(os.getpid()))
+    except Exception:
+        pass
 
     # If --background or -b or --detach is requested, spawn detached background daemon and log to ~/aegis_agent.log
     if (args.background or os.environ.get("AEGIS_BACKGROUND") == "1") and not os.environ.get("_AEGIS_DETACHED"):

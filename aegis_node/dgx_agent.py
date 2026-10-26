@@ -277,7 +277,7 @@ class CornerLogoOrb(QWidget):
         self.update()
 
     def _position_in_corner(self):
-        screen = QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
+        screen = QApplication.primaryScreen()
         if screen:
             avail = screen.availableGeometry()
         else:
@@ -511,7 +511,7 @@ class DynamicIslandWidget(QWidget):
         self.is_busy = False
 
         # Authentic Apple Dynamic Island State Dimensions
-        self.dim_pill_idle = (240, 36)
+        self.dim_pill_idle = (260, 36)
         self.dim_pill_busy = (540, 36)    # EXACT SAME 36px HEIGHT!
         self.dim_alert_done = (440, 108)  # Downward stretch droplet card
         self.dim_expanded = (680, 440)    # Full developer console
@@ -521,6 +521,12 @@ class DynamicIslandWidget(QWidget):
         self.spring_w = Spring(val=self.dim_pill_idle[0], target=self.dim_pill_idle[0], stiffness=305.0, damping=21.5, mass=1.0)
         self.spring_h = Spring(val=self.dim_pill_idle[1], target=self.dim_pill_idle[1], stiffness=315.0, damping=22.5, mass=1.0)
         self.is_animating = False
+
+        # Fluid desktop dragging support
+        self._drag_active = False
+        self._drag_start_pos = QPoint()
+        self._window_start_pos = QPoint()
+        self._moved = False
 
         self.physics_timer = QTimer(self)
         self.physics_timer.timeout.connect(self._physics_tick)
@@ -790,7 +796,7 @@ class DynamicIslandWidget(QWidget):
         p_dim = self.theme["hex_dim"]
         p_col = self.theme["primary"]
         p_border = f"rgba({p_col.red()}, {p_col.green()}, {p_col.blue()}, 0.38)"
-        role_tag = "CODER" if "1" in self.node_id else ("QA/REVIEW" if "2" in self.node_id else self.theme.get("tag", "NODE").upper())
+        role_tag = "CODER" if "1" in self.node_id else ("QA" if "2" in self.node_id else ("VISION" if "3" in self.node_id else ("REASON" if "4" in self.node_id else ("SEC" if "5" in self.node_id else self.theme.get("tag", "NODE").upper()))))
         num = "01" if "1" in self.node_id else ("02" if "2" in self.node_id else self.node_id.replace("dgx-node-", ""))
 
         # Glowing Indicator Pip / Spinner
@@ -1195,18 +1201,35 @@ class DynamicIslandWidget(QWidget):
                 self.lbl_telem.setText(gpu_short)
 
     def _auto_collapse_to_idle(self):
-        if not self.is_busy and self.state == self.STATE_ALERT_DONE:
+        if not self.is_busy:
             self.transition_to(self.STATE_PILL_IDLE)
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
             if watched in [self.capsule, self.pill_bar, self.lbl_badge, self.lbl_dot, self.lbl_activity, self.done_card]:
-                if self.state in [self.STATE_PILL_IDLE, self.STATE_PILL_BUSY, self.STATE_ALERT_DONE]:
-                    self.transition_to(self.STATE_EXPANDED)
-                    return True
-                elif self.state == self.STATE_EXPANDED and event.pos().y() <= 36:
-                    self.transition_to(self.STATE_PILL_BUSY if self.is_busy else self.STATE_PILL_IDLE)
-                    return True
+                self._drag_active = True
+                self._drag_start_pos = event.globalPos()
+                self._window_start_pos = self.pos()
+                self._moved = False
+                self.setCursor(QCursor(Qt.ClosedHandCursor))
+                return True
+        elif event.type() == QEvent.MouseMove and (event.buttons() & Qt.LeftButton):
+            if self._drag_active:
+                delta = event.globalPos() - self._drag_start_pos
+                if delta.manhattanLength() > 4:
+                    self._moved = True
+                    self.move(self._window_start_pos + delta)
+                return True
+        elif event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+            if self._drag_active:
+                self._drag_active = False
+                self.setCursor(QCursor(Qt.ArrowCursor))
+                if not self._moved:
+                    if self.state in [self.STATE_PILL_IDLE, self.STATE_PILL_BUSY, self.STATE_ALERT_DONE]:
+                        self.transition_to(self.STATE_EXPANDED)
+                    elif self.state == self.STATE_EXPANDED and event.pos().y() <= 36:
+                        self.transition_to(self.STATE_PILL_BUSY if self.is_busy else self.STATE_PILL_IDLE)
+                return True
         return super().eventFilter(watched, event)
 
     def mousePressEvent(self, event):
@@ -1221,16 +1244,38 @@ class DynamicIslandWidget(QWidget):
                 event.ignore()
                 return
 
-            if self.state in [self.STATE_PILL_IDLE, self.STATE_PILL_BUSY, self.STATE_ALERT_DONE]:
-                self.transition_to(self.STATE_EXPANDED)
-                event.accept()
-                return
-            elif self.state == self.STATE_EXPANDED:
-                if event.pos().y() <= capsule_y + 36:
-                    self.transition_to(self.STATE_PILL_BUSY if self.is_busy else self.STATE_PILL_IDLE)
-                    event.accept()
-                    return
+            self._drag_active = True
+            self._drag_start_pos = event.globalPos()
+            self._window_start_pos = self.pos()
+            self._moved = False
+            self.setCursor(QCursor(Qt.ClosedHandCursor))
+            event.accept()
+            return
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._drag_active and (event.buttons() & Qt.LeftButton):
+            delta = event.globalPos() - self._drag_start_pos
+            if delta.manhattanLength() > 4:
+                self._moved = True
+                self.move(self._window_start_pos + delta)
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self._drag_active:
+            self._drag_active = False
+            self.setCursor(QCursor(Qt.ArrowCursor))
+            if not self._moved:
+                cur_y = 6.0
+                if self.state in [self.STATE_PILL_IDLE, self.STATE_PILL_BUSY, self.STATE_ALERT_DONE]:
+                    self.transition_to(self.STATE_EXPANDED)
+                elif self.state == self.STATE_EXPANDED and event.pos().y() <= cur_y + 36:
+                    self.transition_to(self.STATE_PILL_BUSY if self.is_busy else self.STATE_PILL_IDLE)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -2516,9 +2561,6 @@ class DGXStandaloneAgent:
                     # Log heartbeat status so terminal is visibly alive
                     now_str = datetime.now().strftime("%H:%M:%S")
                     if not has_task and not has_cmd:
-                        if self.hud and not self.current_task_id:
-                            if getattr(self.hud, "current_status", "") == "DONE":
-                                self.hud.update_status("ONLINE")
                         if hb_tick % 4 == 1 or hb_tick <= 2:
                             print(f"[{now_str}] [✓ HEARTBEAT] Polled {gw} -> OK (Standing by)")
                     else:
@@ -2577,6 +2619,41 @@ if __name__ == "__main__":
     parser.add_argument("--no-hud", action="store_true", help="Disable desktop screen overlay HUD")
     parser.add_argument("--background", "-b", "--detach", action="store_true", help="Run agent completely in the background without exposed terminal")
     args, unknown = parser.parse_known_args()
+
+    # Strict single-instance process lock per node to prevent duplicate agents
+    import tempfile
+    lock_file = os.path.join(tempfile.gettempdir(), f"aegis_agent_{args.id}.pid")
+    if os.path.exists(lock_file):
+        try:
+            with open(lock_file, "r") as f:
+                old_pid = int(f.read().strip())
+            if old_pid != os.getpid():
+                try:
+                    import psutil
+                    if psutil.pid_exists(old_pid):
+                        proc = psutil.Process(old_pid)
+                        if "dgx_agent" in " ".join(proc.cmdline()):
+                            print(f"[!] Terminating duplicate prior agent process (PID: {old_pid})...")
+                            proc.terminate()
+                            try:
+                                proc.wait(timeout=1.5)
+                            except Exception:
+                                proc.kill()
+                except Exception:
+                    if sys.platform != "win32":
+                        try:
+                            import signal
+                            os.kill(old_pid, signal.SIGKILL)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+    try:
+        with open(lock_file, "w") as f:
+            f.write(str(os.getpid()))
+    except Exception:
+        pass
 
     # If --background or -b or --detach is requested, spawn detached background daemon and log to ~/aegis_agent.log
     if (args.background or os.environ.get("AEGIS_BACKGROUND") == "1") and not os.environ.get("_AEGIS_DETACHED"):

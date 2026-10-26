@@ -30,12 +30,7 @@ echo ""
 
 # 1. Stop conflicting agent processes & prepare workspace directory
 echo "[1/5] Stopping any existing processes & preparing workspace..."
-pkill -9 -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1 || true
-for other in 1 2 3 4 5 6 7 8; do
-    if [ "dgx-node-${other}" != "${NODE_ID}" ]; then
-        pkill -9 -f "dgx_agent.py --id dgx-node-${other}" > /dev/null 2>&1 || true
-    fi
-done
+pkill -9 -f "dgx_agent" > /dev/null 2>&1 || true
 sleep 1
 mkdir -p "$AEGIS_DIR/workspace"
 
@@ -166,6 +161,8 @@ for xa in "\$HOME/.Xauthority" "/run/user/\$(id -u)/gdm/Xauthority" "/run/user/\
 done
 xhost +local: > /dev/null 2>&1 || true
 xhost + > /dev/null 2>&1 || true
+pkill -9 -f "dgx_agent" > /dev/null 2>&1 || true
+sleep 1
 cd "${AEGIS_DIR}"
 nohup python3 "${AGENT_FILE}" \
     --id "${NODE_ID}" \
@@ -181,7 +178,7 @@ chmod +x "$AEGIS_DIR/start.sh"
 
 cat <<EOF > "$AEGIS_DIR/stop.sh"
 #!/usr/bin/env bash
-pkill -9 -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1 || true
+pkill -9 -f "dgx_agent" > /dev/null 2>&1 || true
 echo "○ Stopped ${NODE_ID}."
 EOF
 chmod +x "$AEGIS_DIR/stop.sh"
