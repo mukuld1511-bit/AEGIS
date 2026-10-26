@@ -30,12 +30,7 @@ echo ""
 
 # 1. Stop conflicting agent processes & prepare workspace directory
 echo "[1/5] Stopping any existing processes & preparing workspace..."
-pkill -9 -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1 || true
-for other in 1 2 3 4 5 6 7 8; do
-    if [ "dgx-node-${other}" != "${NODE_ID}" ]; then
-        pkill -9 -f "dgx_agent.py --id dgx-node-${other}" > /dev/null 2>&1 || true
-    fi
-done
+pkill -9 -f "dgx_agent" > /dev/null 2>&1 || true
 sleep 1
 mkdir -p "$AEGIS_DIR/workspace"
 
@@ -147,7 +142,7 @@ xhost + > /dev/null 2>&1 || true
 # Generate Start, Stop, and Status scripts
 cat <<EOF > "$AEGIS_DIR/start.sh"
 #!/usr/bin/env bash
-pkill -9 -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1 || true
+pkill -9 -f "dgx_agent" > /dev/null 2>&1 || true
 sleep 0.5
 if ! pgrep -f "ollama serve" > /dev/null 2>&1; then
     nohup ollama serve > /dev/null 2>&1 &
@@ -166,13 +161,15 @@ for xa in "\$HOME/.Xauthority" "/run/user/\$(id -u)/gdm/Xauthority" "/run/user/\
 done
 xhost +local: > /dev/null 2>&1 || true
 xhost + > /dev/null 2>&1 || true
+pkill -9 -f "dgx_agent" > /dev/null 2>&1 || true
+sleep 1
 cd "${AEGIS_DIR}"
 nohup python3 "${AGENT_FILE}" \
     --id "${NODE_ID}" \
     --gateway "${GATEWAY_URL}" \
     --storage "${STORAGE_URL}" \
     --model "${MODEL_NAME}" \
-    --ctx 65536 \
+    --ctx 32768 \
     >> "${LOG_FILE}" 2>&1 &
 disown
 echo "● Started ${NODE_ID} in background."
@@ -181,7 +178,7 @@ chmod +x "$AEGIS_DIR/start.sh"
 
 cat <<EOF > "$AEGIS_DIR/stop.sh"
 #!/usr/bin/env bash
-pkill -9 -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1 || true
+pkill -9 -f "dgx_agent" > /dev/null 2>&1 || true
 echo "○ Stopped ${NODE_ID}."
 EOF
 chmod +x "$AEGIS_DIR/stop.sh"
@@ -189,8 +186,8 @@ chmod +x "$AEGIS_DIR/stop.sh"
 cat <<EOF > "$AEGIS_DIR/status.sh"
 #!/usr/bin/env bash
 echo "═══ AEGIS ${NODE_ID} Status ═══"
-if pgrep -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1; then
-    PID=\$(pgrep -f "dgx_agent.py --id ${NODE_ID}" | head -1)
+if pgrep -f "dgx_agent" > /dev/null 2>&1; then
+    PID=\$(pgrep -f "dgx_agent" | head -1)
     echo "● RUNNING (PID: \$PID)"
 else
     echo "○ NOT RUNNING"
@@ -211,8 +208,8 @@ echo "[5/5] Launching AEGIS ${NODE_ID}..."
 "$AEGIS_DIR/start.sh"
 sleep 2
 
-if pgrep -f "dgx_agent.py --id ${NODE_ID}" > /dev/null 2>&1; then
-    PID=$(pgrep -f "dgx_agent.py --id ${NODE_ID}" | head -1)
+if pgrep -f "dgx_agent" > /dev/null 2>&1; then
+    PID=$(pgrep -f "dgx_agent" | head -1)
     echo ""
     echo "╔══════════════════════════════════════════════════════════════════╗"
     echo "║  ✅ SUCCESS! AEGIS ${NODE_ID} (${ROLE}) is now RUNNING!         "

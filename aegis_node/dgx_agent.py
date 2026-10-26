@@ -795,9 +795,18 @@ class DynamicIslandWidget(QWidget):
         p_hex = self.theme["hex"]
         p_dim = self.theme["hex_dim"]
         p_col = self.theme["primary"]
-        p_border = f"rgba({p_col.red()}, {p_col.green()}, {p_col.blue()}, 0.38)"
-        role_tag = "CODER" if "1" in self.node_id else ("QA" if "2" in self.node_id else ("VISION" if "3" in self.node_id else ("REASON" if "4" in self.node_id else ("SEC" if "5" in self.node_id else self.theme.get("tag", "NODE").upper()))))
-        num = "01" if "1" in self.node_id else ("02" if "2" in self.node_id else self.node_id.replace("dgx-node-", ""))
+        role_tag = (
+            "CODER" if "1" in self.node_id else (
+            "QA" if "2" in self.node_id else (
+            "VISION" if "3" in self.node_id else (
+            "REASON" if "4" in self.node_id else (
+            "SEC" if "5" in self.node_id else (
+            "STUDIO" if "6" in self.node_id else (
+            "TOOL" if "7" in self.node_id else (
+            "DOCS" if "8" in self.node_id else self.theme.get("tag", "NODE").upper()
+        )))))))
+        num_m = re.search(r'\d+', self.node_id)
+        num = f"{int(num_m.group(0)):02d}" if num_m else "01"
 
         # Glowing Indicator Pip / Spinner
         self.lbl_dot.setStyleSheet(f"color: {p_hex}; font-size: 11px; font-weight: bold; padding-left: 2px;")
@@ -816,19 +825,23 @@ class DynamicIslandWidget(QWidget):
             "font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', sans-serif;"
         )
 
-        # Model Pill Tag (32B / 70B / 90B / 141B etc.)
+        # Model Pill Tag (32B / 70B / 90B / 141B / FLUX / 132B etc.)
         short_model = "32B"
         m_lower = self.active_model.lower()
-        if "90b" in m_lower:
-            short_model = "90B"
-        elif "8x22b" in m_lower or "22b" in m_lower:
+        if "141b" in m_lower or "8x22b" in m_lower or "22b" in m_lower:
             short_model = "141B"
+        elif "132b" in m_lower or "dbrx" in m_lower:
+            short_model = "132B"
+        elif "90b" in m_lower:
+            short_model = "90B"
         elif "72b" in m_lower:
             short_model = "72B"
         elif "70b" in m_lower:
             short_model = "70B"
         elif "32b" in m_lower:
             short_model = "32B"
+        elif "flux" in m_lower or "12b" in m_lower:
+            short_model = "FLUX"
         elif "16b" in m_lower:
             short_model = "16B"
         elif "14b" in m_lower:
