@@ -224,12 +224,67 @@ class HardenedKVCache(DistributedKVCache):
   }
 };
 
-const vaultArtifacts = [
-  { name: 'dist_kv_cache.py', size: '14.2 KB', time: '15:42', node: 'DGX-1', content: nodeStages[1].codeSnippet },
-  { name: 'test_suite.py', size: '18.6 KB', time: '15:43', node: 'DGX-2', content: nodeStages[2].codeSnippet },
-  { name: 'architecture_spec.md', size: '9.4 KB', time: '15:44', node: 'DGX-3', content: nodeStages[3].codeSnippet },
-  { name: 'hardened_solution.py', size: '21.0 KB', time: '15:45', node: 'DGX-4', content: nodeStages[4].codeSnippet }
-];
+let vaultArtifacts = [];
+
+async function fetchRealVaultArtifacts() {
+  try {
+    const res = await fetch(`${API_BASE}/api/storage/recent?limit=30`);
+    if (res.ok) {
+      const data = await res.json();
+      const recents = data.recent_artifacts || [];
+      if (recents.length > 0) {
+        vaultArtifacts = recents
+          .filter(a => a.filename !== '__pycache__' && !a.filename.endsWith('.pyc'))
+          .map(a => ({
+            name: a.filename,
+            size: (a.size_bytes / 1024).toFixed(1) + ' KB',
+            time: new Date(a.modified_at * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            node: (a.node_id || 'DGX-1').toUpperCase(),
+            taskId: a.task_id,
+            downloadUrl: a.url.startsWith('http') ? a.url : `${API_BASE}${a.url}`,
+            content: ''
+          }));
+      }
+    }
+  } catch (err) {
+    console.warn('Vault artifacts fetch failed:', err);
+  }
+  renderArtifactsSidebar();
+  renderVaultFiles();
+}
+
+async function fetchRealClusterNodes() {
+  try {
+    const res = await fetch(`${API_BASE}/api/nodes`);
+    if (res.ok) {
+      const nodes = await res.json();
+      nodes.slice(0, 4).forEach((node, idx) => {
+        const i = idx + 1;
+        const card = document.getElementById(`card-node-${i}`);
+        const pill = document.getElementById(`status-pill-${i}`);
+        if (pill) {
+          const isBusy = node.status === 'busy';
+          pill.textContent = isBusy ? 'BUSY' : 'ONLINE';
+          pill.className = `work-status-pill ${isBusy ? 'active' : 'standby'}`;
+        }
+        if (card && node.gpu) {
+          const footer = card.querySelector('.node-metric-footer');
+          if (footer) {
+            const vramGb = (node.gpu.vram_used_mb / 1024).toFixed(1);
+            const totalGb = Math.round(node.gpu.vram_total_mb / 1024);
+            footer.innerHTML = `
+              <span>VRAM: ${vramGb} / ${totalGb} GB</span>
+              <span>Temp: ${node.gpu.temperature_c}°C</span>
+              <span>GPU: ${node.gpu.utilization_pct}%</span>
+            `;
+          }
+        }
+      });
+    }
+  } catch (err) {
+    console.warn('Nodes telemetry fetch failed:', err);
+  }
+}
 
 // ==============================================================================
 // 3. State Management (Chats, History, Attachments)
@@ -251,7 +306,7 @@ let pipelineTimer = null;
 let activeLogFilter = 'all';
 const allTerminalLogs = [];
 
-// Initialize LocalStorage Sessions
+// Initialize LocalStorage Sessions - Clean & Real (No Hardcoded Dummy Data)
 function initChatSessions() {
   try {
     const saved = localStorage.getItem('aegis_chat_sessions');
@@ -262,52 +317,11 @@ function initChatSessions() {
     chatSessions = [];
   }
 
-  // Pre-seed with realistic developer chats if empty
-  if (!chatSessions || chatSessions.length === 0) {
-    chatSessions = [
-      {
-        id: 'chat-seed-1',
-        title: 'Distributed Async KV Cache',
-        timestamp: '16:15',
-        messages: [
-          {
-            role: 'user',
-            text: 'Build a high-performance distributed key-value cache with TTL in Python.',
-            time: '16:15'
-          },
-          {
-            role: 'assistant',
-            text: '',
-            code: nodeStages[1].codeSnippet,
-            model: '⚡ 4-Node Pipeline (DGX-1 ➔ 4)',
-            time: '16:16'
-          }
-        ]
-      },
-      {
-        id: 'chat-seed-2',
-        title: 'Cluster Status & VRAM Audit',
-        timestamp: '15:50',
-        messages: [
-          {
-            role: 'user',
-            text: 'Cluster status and online nodes audit.',
-            time: '15:50'
-          },
-          {
-            role: 'assistant',
-            text: 'Nodes Online: 8/8 | VRAM: 1,024 GB (186 GB In-Use) | Vault: 100.88.197.6 (Online) | Fabric: 10 GbE Direct RDMA RoCEv2 (Zero packet loss)',
-            code: '',
-            model: 'DGX Cluster Telemetry',
-            time: '15:50'
-          }
-        ]
-      }
-    ];
-    saveChatSessions();
+  activeChatId = localStorage.getItem('aegis_active_chat_id');
+  if (!activeChatId && chatSessions.length > 0) {
+    activeChatId = chatSessions[0].id;
   }
 
-  activeChatId = localStorage.getItem('aegis_active_chat_id') || chatSessions[0]?.id;
   renderChatHistory();
   renderArtifactsSidebar();
   loadActiveChat();
@@ -431,6 +445,15 @@ function renderArtifactsSidebar() {
   artifactsSidebarList.innerHTML = '';
   if (artifactsBadgeCount) artifactsBadgeCount.textContent = vaultArtifacts.length.toString();
 
+  if (vaultArtifacts.length === 0) {
+    artifactsSidebarList.innerHTML = `
+      <div style="padding: 1.5rem 1rem; color: var(--text-dim); font-size: 0.8rem; text-align: center; line-height: 1.5;">
+        No artifacts yet.<br>Files generated by DGX cluster will appear here.
+      </div>
+    `;
+    return;
+  }
+
   vaultArtifacts.forEach((art) => {
     const item = document.createElement('div');
     item.className = 'artifact-sidebar-item';
@@ -452,17 +475,38 @@ function renderArtifactsSidebar() {
 }
 
 // ==============================================================================
-// 4. Artifact Preview Modal
+// 4. Artifact Preview Modal (Real Vault File Viewer)
 // ==============================================================================
 
 let currentViewingArtifact = null;
 
-function openArtifactModal(artifact) {
+async function openArtifactModal(artifact) {
   currentViewingArtifact = artifact;
   if (!artifactModal) return;
   if (modalFilename) modalFilename.textContent = artifact.name;
   if (modalFileNode) modalFileNode.textContent = `${artifact.node} • ${artifact.size}`;
-  if (modalCodeContent) modalCodeContent.textContent = artifact.content || nodeStages[1].codeSnippet;
+  
+  if (modalCodeContent) {
+    if (artifact.content) {
+      modalCodeContent.textContent = artifact.content;
+    } else if (artifact.downloadUrl) {
+      modalCodeContent.textContent = 'Loading verified file from i7-14700 Storage Vault...';
+      try {
+        const res = await fetch(artifact.downloadUrl);
+        if (res.ok) {
+          const txt = await res.text();
+          artifact.content = txt;
+          modalCodeContent.textContent = txt;
+        } else {
+          modalCodeContent.textContent = `// HTTP ${res.status}: File temporarily unavailable from storage service.`;
+        }
+      } catch (err) {
+        modalCodeContent.textContent = `// Error loading vault file: ${err.message}`;
+      }
+    } else {
+      modalCodeContent.textContent = '# No preview available for this file';
+    }
+  }
   artifactModal.classList.remove('hidden');
 }
 
@@ -714,7 +758,8 @@ function setTab(tab) {
     tabUserView?.classList.remove('active');
     viewOperatorPanel?.classList.remove('hidden');
     viewUserPanel?.classList.add('hidden');
-    renderVaultFiles();
+    fetchRealVaultArtifacts();
+    fetchRealClusterNodes();
   }
 }
 
@@ -1033,28 +1078,32 @@ async function dispatchCommand(commandText) {
   lastFailedCommand = prompt;
   hide404Error();
 
+  // Ensure active chat session exists
+  if (!activeChatId || !chatSessions.find(c => c.id === activeChatId)) {
+    createNewChatSession(prompt.slice(0, 32));
+  }
+
   // 1. Append User Message
   appendChatMessage('user', prompt, '', '', currentAttachmentName);
-
   appendLog('CLUSTER', `> [PROMPT]: "${prompt}"`, 'term-cyan');
 
   // 2. Show Loading Skeleton & Start Stepper Progress
   showLoadingSkeleton('Routing intent to DGX Node 1 (Lead Coder)...', 1);
 
-  // Trigger Mesh Tab Real-Time Animation in background
-  runFull4NodePipelineSimulation();
+  // Trigger Mesh Tab Real-Time Visualizer
+  runFull4NodePipelineSimulation(prompt);
 
   let currentStep = 1;
   const stepTimer = setInterval(() => {
     currentStep++;
     if (currentStep === 2) {
-      showLoadingSkeleton('DGX Node 2 (QA Reviewer) executing 12 unit tests...', 2);
+      showLoadingSkeleton('DGX Node 2 (QA Reviewer) validating unit tests & logic...', 2);
     } else if (currentStep === 3) {
       showLoadingSkeleton('DGX Node 3 (Systems Architect) certifying topology graph...', 3);
     } else if (currentStep === 4) {
       showLoadingSkeleton('DGX Node 4 (Security Sentinel) auditing memory safety & locks...', 4);
     }
-  }, 1100);
+  }, 900);
 
   // 3. Dispatch to Server API
   try {
@@ -1063,86 +1112,53 @@ async function dispatchCommand(commandText) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         command: prompt, 
-        preferred_node: 'dgx-node-1',
+        preferred_node: routeSelector ? routeSelector.value : 'dgx-node-1',
         pipeline_mode: true,
         attachment: currentAttachmentName
       })
     });
 
+    clearInterval(stepTimer);
+    hideLoadingSkeleton();
+
     if (res.ok) {
       const data = await res.json();
-      clearInterval(stepTimer);
-      hideLoadingSkeleton();
 
       if (data.spoken_response) {
         if (spokenText) spokenText.textContent = `"${data.spoken_response}"`;
         speakAudioResponse(data.spoken_response);
       }
 
-      const answer = data.result || data.spoken_response || nodeStages[1].codeSnippet;
-      const parsed = extractPureResult(answer);
-
-      if (parsed.type === 'code') {
-        appendChatMessage('assistant', '', parsed.content, '⚡ 4-Node Pipeline');
+      // Handle real code result
+      if (data.result_code) {
+        appendChatMessage('assistant', '', data.result_code, `⚡ ${data.assigned_node || 'DGX-1'} (${data.filename || 'Code'})`);
+      } else if (data.cluster_summary) {
+        // Format live cluster summary
+        const summaryLines = Object.entries(data.cluster_summary).map(([k, v]) => {
+          if (typeof v === 'object' && v.name) {
+            return `• ${v.name}: ${v.status.toUpperCase()} | VRAM: ${v.vram_used_gb}/${v.vram_total_gb} GB | GPU: ${v.gpu_utilization}%`;
+          }
+          return `• ${k}: ${v}`;
+        }).join('\n');
+        appendChatMessage('assistant', `Cluster Telemetry:\n${summaryLines}`, '', '⚡ DGX Cluster Telemetry');
+      } else if (data.spoken_response) {
+        appendChatMessage('assistant', data.spoken_response, '', '⚡ 4-Node Pipeline');
       } else {
-        appendChatMessage('assistant', parsed.content, '', '⚡ 4-Node Pipeline');
+        appendChatMessage('assistant', 'Task completed with exit code 0.', '', '⚡ 4-Node Pipeline');
       }
+
+      // Immediately refresh real vault files and cluster node states
+      await fetchRealVaultArtifacts();
+      fetchRealClusterNodes();
       return;
-    } else if (res.status === 404) {
-      clearInterval(stepTimer);
-      hideLoadingSkeleton();
-      show404Error('404 - Node Or Artifact Not Found', `HTTP 404: Endpoint ${API_BASE}/api/command or requested cluster node was unreachable.`);
-      return;
+    } else {
+      show404Error('Execution Failed', `HTTP ${res.status}: Failed to process command on AEGIS Coordinator.`);
     }
   } catch (err) {
-    // Fallback simulation below
-  }
-
-  // Fallback direct realistic cluster response
-  setTimeout(() => {
     clearInterval(stepTimer);
     hideLoadingSkeleton();
-
-    const lower = prompt.toLowerCase();
-    let spoken = "";
-    let codeResult = "";
-    let textResult = "";
-
-    if (lower.includes('status') || lower.includes('online')) {
-      spoken = "8 DGX nodes online. 1,024 GB VRAM ready.";
-      textResult = "Nodes Online: 8/8 | VRAM: 1,024 GB | Vault: 100.88.197.6 (Online) | Fabric: 10 GbE Direct RDMA";
-    } else if (lower.includes('csv') || lower.includes('pandas')) {
-      spoken = "Python CSV pipeline generated.";
-      codeResult = `import pandas as pd
-import matplotlib.pyplot as plt
-
-def analyze_csv(filepath: str):
-    """Automated high-throughput CSV analysis."""
-    df = pd.read_csv(filepath)
-    print(f"Loaded {len(df)} rows. Summary:\\n", df.describe())
-    df.hist(figsize=(10, 6))
-    plt.tight_layout()
-    plt.savefig("analysis_chart.png")
-
-if __name__ == "__main__":
-    analyze_csv("dataset.csv")`;
-    } else if (lower.includes('404') || lower.includes('error')) {
-      show404Error('404 - Artifact / File Not Found', 'The requested file or model weight snapshot was not found on Storage Vault 100.88.197.6.');
-      return;
-    } else {
-      spoken = "Distributed KV cache solution generated.";
-      codeResult = nodeStages[1].codeSnippet;
-    }
-
-    if (spokenText) spokenText.textContent = `"${spoken}"`;
-    speakAudioResponse(spoken);
-
-    if (codeResult) {
-      appendChatMessage('assistant', '', codeResult, '⚡ 4-Node Pipeline');
-    } else {
-      appendChatMessage('assistant', textResult, '', '⚡ DGX Cluster Telemetry');
-    }
-  }, 2200);
+    show404Error('Connection Error', `Could not connect to AEGIS API at ${API_BASE}. Ensure run_aegis.py is running.`);
+  }
 }
 
 // ==============================================================================
@@ -1325,11 +1341,21 @@ btnClearMeshTerm?.addEventListener('click', () => {
 function renderVaultFiles() {
   if (!vaultFilesTable) return;
   vaultFilesTable.innerHTML = '';
+
+  if (vaultArtifacts.length === 0) {
+    vaultFilesTable.innerHTML = `
+      <div style="padding: 1.5rem 1rem; color: var(--text-dim); font-size: 0.85rem; text-align: center;">
+        No vault files detected. Run a task or pipeline to save outputs into i7-14700 Storage Vault.
+      </div>
+    `;
+    return;
+  }
+
   vaultArtifacts.forEach(file => {
     const row = document.createElement('div');
     row.className = 'artifact-item';
     row.innerHTML = `
-      <span class="artifact-name">${file.name}</span>
+      <span class="artifact-name">${escapeHtml(file.name)}</span>
       <span style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim);">${file.size} &bull; ${file.node}</span>
       <div style="display: flex; gap: 8px;">
         <a href="#" class="artifact-link btn-inspect-vault-file">Inspect</a>
@@ -1351,28 +1377,39 @@ function renderVaultFiles() {
   });
 }
 
-function downloadVaultFile(filename) {
+async function downloadVaultFile(filename) {
   const art = vaultArtifacts.find(a => a.name === filename);
-  const content = art ? art.content : nodeStages[1].codeSnippet;
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  if (art && art.downloadUrl) {
+    const a = document.createElement('a');
+    a.href = art.downloadUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } else {
+    const content = art ? art.content : '';
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
 }
 
-btnRefreshVaultList?.addEventListener('click', renderVaultFiles);
+btnRefreshVaultList?.addEventListener('click', () => {
+  fetchRealVaultArtifacts();
+});
 
 // ==============================================================================
 // 13. Event Listeners & Boot
 // ==============================================================================
 
 btnTriggerPipeline?.addEventListener('click', () => {
-  runFull4NodePipelineSimulation();
+  runFull4NodePipelineSimulation('Full 4-Node Cluster Synthesis');
 });
 
 btnPingMesh?.addEventListener('click', () => {
@@ -1411,9 +1448,10 @@ window.dispatchCommand = dispatchCommand;
 window.downloadVaultFile = downloadVaultFile;
 
 // Initial boot
-function boot() {
+async function boot() {
   initChatSessions();
-  renderVaultFiles();
+  await fetchRealVaultArtifacts();
+  fetchRealClusterNodes();
   setStageActive(1, 100);
 }
 

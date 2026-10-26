@@ -34,6 +34,15 @@ def create_app(state_mgr: StateManager, orchestrator: Orchestrator, safety: Safe
         allow_headers=["*"],
     )
 
+    # Attach Storage Vault routes directly so port 9000 & Tailscale Funnel serve them seamlessly
+    try:
+        from aegis_server.storage_service import app as storage_app
+        for r in storage_app.routes:
+            if hasattr(r, 'path') and r.path.startswith('/api/storage'):
+                app.routes.append(r)
+    except Exception as e:
+        print("[AEGIS CORE] Note: storage_service routes not attached:", e)
+
     active_ws_connections: List[WebSocket] = []
     # Reverse-Heartbeat task and command queues for all nodes
     node_task_queues: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
@@ -379,7 +388,7 @@ def create_app(state_mgr: StateManager, orchestrator: Orchestrator, safety: Safe
         """User or voice submits command -> enqueued into the assigned DGX node's reverse queue."""
         pref_node = payload.preferred_node or payload.pc_id
         res = await orchestrator.handle_user_command(payload.command, preferred_node=pref_node)
-        if res.get("status") == "task_scheduled":
+        if res.get("status") in ["task_scheduled", "completed"]:
             assigned_node = res.get("assigned_node", pref_node or "dgx-node-1")
             task_id = res.get("task_id")
 
