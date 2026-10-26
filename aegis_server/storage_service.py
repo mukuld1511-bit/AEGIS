@@ -3,9 +3,10 @@ Manages isolated storage vaults for all 8 DGX nodes, coordinates inter-node file
 and hosts the Mission Control dashboard.
 """
 import os
+import json
 import shutil
 import aiofiles
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -103,6 +104,24 @@ def handoff_files_between_nodes(from_node: str, to_node: str, task_id: str, file
         "filename": filename,
         "ready_for_review_path": f"{to_node}/workspaces/{task_id}/{filename}"
     }
+
+@app.post("/api/dgx/complete")
+async def forward_dgx_complete_to_coordinator(request: Request):
+    """Forwards node completion signals received on storage port 8443/9080 to the coordinator on 9000."""
+    import urllib.request
+    body = await request.body()
+    try:
+        req = urllib.request.Request(
+            "http://127.0.0.1:9000/api/dgx/complete",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=5.0) as resp:
+            data = json.loads(resp.read().decode())
+            return data
+    except Exception as e:
+        return {"status": "forward_failed", "error": str(e)}
 
 @app.get("/api/storage/vault/overview")
 def get_vault_overview():

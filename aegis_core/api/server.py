@@ -299,46 +299,48 @@ def create_app(state_mgr: StateManager, orchestrator: Orchestrator, safety: Safe
 
         next_stage = None
         orig_task = task_id
-        if task_id.endswith("_sec"):
+        if task_id.endswith("_sec") or task_id.endswith("_opt"):
             # Final pipeline stage completed on dgx-node-4
             orig_task = task_id[:-4]
             state_mgr._broadcast("pipeline_completed", {
                 "original_task_id": orig_task,
                 "final_node": payload.node_id,
-                "summary": "Full 4-node cluster synthesis & verification pipeline completed successfully."
+                "summary": "Full multi-node cluster synthesis, QA review & deep betterment pipeline completed successfully."
             })
         elif task_id.endswith("_arch"):
             # Stage 3 completed on dgx-node-3 -> handoff to dgx-node-4
             orig_task = task_id[:-5]
             next_stage = {
                 "target_node": "dgx-node-4",
-                "task_id": f"{orig_task}_sec",
-                "model": "qwen2.5:141b",
-                "num_ctx": 32768,
-                "prompt": (
-                    f"You are the Principal Security & Deep Reasoning Sentinel on DGX Node 4.\n"
-                    f"Perform deep architectural, boundary condition, and vulnerability audit on task '{orig_task}'.\n"
-                    f"Stage 1 code, Stage 2 QA report, and Stage 3 Architectural assessment are present in your workspace.\n\n"
-                    f"Provide formal correctness verification and output the certified hardened implementation.\n"
-                    f"Prefix final production file with '# filename: hardened_solution.py' on line 1."
-                ),
-                "stage_name": "Stage 4: Deep Reasoning & Security Sign-Off"
-            }
-        elif task_id.endswith("_qa") or task_id.endswith("_rev"):
-            # Stage 2 completed on dgx-node-2 -> handoff to dgx-node-3
-            orig_task = task_id[:-3] if task_id.endswith("_qa") else task_id[:-4]
-            next_stage = {
-                "target_node": "dgx-node-3",
-                "task_id": f"{orig_task}_arch",
-                "model": "llama3.2-vision:90b",
+                "task_id": f"{orig_task}_opt",
+                "model": "mixtral:8x22b",
                 "num_ctx": 65536,
                 "prompt": (
-                    f"You are the Chief Systems Architect on DGX Node 3.\n"
-                    f"Analyze the system architecture, performance characteristics, and visual/data flow for task '{orig_task}'.\n"
-                    f"Synthesize architectural documentation and an ASCII/Mermaid component interaction diagram.\n"
-                    f"Save your architecture summary with '# filename: architecture_spec.md' on line 1."
+                    f"You are the Principal Sentinel & Deep Reasoner on DGX Node 4.\n"
+                    f"Perform deep architectural betterment and vulnerability audit on task '{orig_task}'.\n"
+                    f"Stage 1 code, Stage 2 QA report, and Stage 3 Architectural assessment are present in your workspace.\n\n"
+                    f"Provide formal correctness verification and output the certified hardened implementation.\n"
+                    f"Prefix final production file with '# filename: enhanced_solution.py' on line 1."
                 ),
-                "stage_name": "Stage 3: Systems Architecture & Vision Evaluation"
+                "stage_name": "Stage 4: Deep Reasoning & System Betterment"
+            }
+        elif task_id.endswith("_qa") or task_id.endswith("_rev"):
+            # Stage 2 completed on dgx-node-2 -> handoff directly to dgx-node-4 (Deep Reasoner & Betterment)
+            orig_task = task_id[:-3] if task_id.endswith("_qa") else task_id[:-4]
+            next_stage = {
+                "target_node": "dgx-node-4",
+                "task_id": f"{orig_task}_opt",
+                "model": "mixtral:8x22b",
+                "num_ctx": 65536,
+                "prompt": (
+                    f"You are DGX Spark 04 - Deep Reasoner & System Optimizer.\n"
+                    f"Perform deep betterment, enhancement, and optimization on task '{orig_task}'.\n"
+                    f"Original Stage 1 code and Stage 2 QA test suite:\n\n"
+                    f"{payload.stdout[:2500]}\n\n"
+                    f"Enhance and optimize this implementation with advanced features, real-time streaming, and robust error handling.\n"
+                    f"Save your enhanced solution with '# filename: enhanced_opencv_studio.py' on line 1."
+                ),
+                "stage_name": "Stage 3: Deep Reasoning & System Betterment"
             }
         elif payload.node_id == "dgx-node-1":
             # Stage 1 completed on dgx-node-1 -> handoff to dgx-node-2

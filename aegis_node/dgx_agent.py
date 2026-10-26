@@ -2042,7 +2042,7 @@ def build_node_system_instruction(node_id: str, model_name: str = "") -> str:
 class DGXStandaloneAgent:
     def __init__(self, node_id: str = "dgx-node-1",
                  gateway_url: str = "https://raspberrypi.tailc8c1f6.ts.net",
-                 fallback_url: str = "https://labg418pc12.tailc8c1f6.ts.net",
+                 fallback_url: str = "http://100.88.197.6:9000",
                  storage_url: str = "https://labg418pc12.tailc8c1f6.ts.net:8443",
                  ollama_url: str = "http://127.0.0.1:11434",
                  default_model: str = "qwen2.5-coder:32b",
@@ -2466,7 +2466,7 @@ class DGXStandaloneAgent:
             "drive_status": "not_requested"
         }
 
-        for gw in [self.gateway_url, self.fallback_url]:
+        for gw in [self.gateway_url, self.fallback_url, self.storage_url]:
             res = http_post_json(f"{gw}/api/dgx/complete", complete_payload, timeout=6.0)
             if "status" in res:
                 print(f"[✓] Task completion reported to {gw}")
@@ -2552,7 +2552,7 @@ class DGXStandaloneAgent:
         print(f" Floating HUD:  {'ACTIVE' if self.hud else 'DISABLED'}")
         print("=" * 65)
 
-        gateways = [self.gateway_url, self.fallback_url]
+        gateways = [self.gateway_url, self.fallback_url, self.storage_url]
         hb_tick = 0
 
         while self.is_running:
