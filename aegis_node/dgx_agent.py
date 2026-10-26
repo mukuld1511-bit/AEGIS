@@ -795,18 +795,21 @@ class DynamicIslandWidget(QWidget):
         p_hex = self.theme["hex"]
         p_dim = self.theme["hex_dim"]
         p_col = self.theme["primary"]
-        role_tag = (
-            "CODER" if "1" in self.node_id else (
-            "QA" if "2" in self.node_id else (
-            "VISION" if "3" in self.node_id else (
-            "REASON" if "4" in self.node_id else (
-            "SEC" if "5" in self.node_id else (
-            "STUDIO" if "6" in self.node_id else (
-            "TOOL" if "7" in self.node_id else (
-            "DOCS" if "8" in self.node_id else self.theme.get("tag", "NODE").upper()
-        )))))))
+        p_border = f"rgba({p_col.red()}, {p_col.green()}, {p_col.blue()}, 0.38)"
+        role_map = {
+            "1": "CODER",
+            "2": "QA",
+            "3": "VISION",
+            "4": "REASON",
+            "5": "SEC",
+            "6": "STUDIO",
+            "7": "TOOL",
+            "8": "DOCS",
+        }
         num_m = re.search(r'\d+', self.node_id)
-        num = f"{int(num_m.group(0)):02d}" if num_m else "01"
+        node_digit = num_m.group(0) if num_m else "1"
+        num = f"{int(node_digit):02d}"
+        role_tag = role_map.get(str(int(node_digit)), self.theme.get("tag", "NODE").upper())
 
         # Glowing Indicator Pip / Spinner
         self.lbl_dot.setStyleSheet(f"color: {p_hex}; font-size: 11px; font-weight: bold; padding-left: 2px;")
