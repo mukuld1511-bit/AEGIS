@@ -850,11 +850,13 @@ async function startAudioWaveVisualizer() {
   try {
     if (!audioContext) {
       audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      audioAnalyser = audioContext.createAnalyser();
-      audioAnalyser.fftSize = 64;
     }
     if (audioContext.state === 'suspended') {
       await audioContext.resume();
+    }
+    if (!audioAnalyser) {
+      audioAnalyser = audioContext.createAnalyser();
+      audioAnalyser.fftSize = 64;
     }
     if (!micStream) {
       micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
@@ -886,7 +888,8 @@ async function startAudioWaveVisualizer() {
     }
     renderAudioFrame();
   } catch (err) {
-    console.warn('Audio Visualizer error:', err);
+    console.warn('Audio Visualizer warning (mic fallback):', err);
+    if (siriOrb) siriOrb.style.animation = 'pulseMic 1.2s infinite';
   }
 }
 
@@ -895,113 +898,282 @@ function stopAudioWaveVisualizer() {
     cancelAnimationFrame(animFrameId);
     animFrameId = null;
   }
-  if (siriOrb) siriOrb.style.transform = 'scale(1)';
-  if (siriAmbient) siriAmbient.style.transform = 'scale(1)';
+  if (micStream) {
+    micStream.getTracks().forEach(track => track.stop());
+    micStream = null;
+  }
+  if (audioSource) {
+    try { audioSource.disconnect(); } catch (e) {}
+    audioSource = null;
+  }
+  if (siriOrb) {
+    siriOrb.style.transform = 'scale(1)';
+    siriOrb.style.filter = 'none';
+    siriOrb.style.animation = 'none';
+  }
+  if (siriAmbient) {
+    siriAmbient.style.transform = 'scale(1)';
+    siriAmbient.style.opacity = '0.5';
+  }
 }
 
-let cachedVoices = [];
-function speakAudioResponse(text) {
+// Resilient Speech Synthesis (TTS) - Chrome GC Proof
+let availableVoices = [];
+let voicesLoaded = false;
+window._activeTTSUtterance = null;
+
+function loadVoices() {
   if (!('speechSynthesis' in window)) return;
+  availableVoices = window.speechSynthesis.getVoices();
+  voicesLoaded = availableVoices.length > 0;
+}
+
+if ('speechSynthesis' in window) {
+  loadVoices();
+  window.speechSynthesis.onvoiceschanged = loadVoices;
+}
+
+function speakAudioResponse(text) {
+  if (!text || !('speechSynthesis' in window)) return;
   try {
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+    }
     window.speechSynthesis.cancel();
+
+    // Synchronous immediate visual feedback in DOM
+    showVoiceAvatar();
+    if (siriAvatar) {
+      siriAvatar.classList.add('speaking');
+      siriAvatar.classList.remove('listening');
+    }
+    if (voiceStateText) voiceStateText.textContent = 'Speaking response...';
+    if (spokenText) spokenText.textContent = `"${text}"`;
+
     const utterance = new SpeechSynthesisUtterance(text);
+    window._activeTTSUtterance = utterance; // Keep global reference to prevent V8 garbage collection!
+
     utterance.rate = 1.05;
     utterance.pitch = 1.0;
 
-    if (!cachedVoices.length) cachedVoices = window.speechSynthesis.getVoices();
-    const naturalVoice = cachedVoices.find(v => 
+    if (!voicesLoaded || !availableVoices.length) {
+      loadVoices();
+    }
+
+    const naturalVoice = availableVoices.find(v => 
       v.name.includes('Natural') || 
       v.name.includes('Neerja') || 
       v.name.includes('Swara') || 
-      v.lang.includes('hi')
-    ) || cachedVoices.find(v => v.lang.includes('en'));
+      v.name.includes('Google') ||
+      v.lang === 'en-IN' ||
+      v.lang === 'hi-IN'
+    ) || availableVoices.find(v => v.lang.startsWith('en')) || availableVoices[0];
 
     if (naturalVoice) utterance.voice = naturalVoice;
 
     utterance.onstart = () => {
       showVoiceAvatar();
-      if (siriAvatar) siriAvatar.classList.add('speaking');
+      if (siriAvatar) {
+        siriAvatar.classList.add('speaking');
+        siriAvatar.classList.remove('listening');
+      }
+      if (voiceStateText) voiceStateText.textContent = 'Speaking response...';
+      if (spokenText) spokenText.textContent = `"${text}"`;
     };
+
     utterance.onend = () => {
-      if (siriAvatar) siriAvatar.classList.remove('speaking');
-      hideVoiceAvatarIfIdle();
-    };
-    utterance.onerror = () => {
+      window._activeTTSUtterance = null;
       if (siriAvatar) siriAvatar.classList.remove('speaking');
       hideVoiceAvatarIfIdle();
     };
 
+    utterance.onerror = (e) => {
+      console.warn('TTS error:', e);
+      window._activeTTSUtterance = null;
+      if (siriAvatar) siriAvatar.classList.remove('speaking');
+      hideVoiceAvatarIfIdle();
+    };
+
+    // Keep Chrome engine alive during speech
+    const resumeTimer = setInterval(() => {
+      if (!window.speechSynthesis.speaking) {
+        clearInterval(resumeTimer);
+      } else {
+        window.speechSynthesis.resume();
+      }
+    }, 2000);
+
     window.speechSynthesis.speak(utterance);
+
   } catch (e) {
     console.warn('TTS error:', e);
   }
 }
 
-// Speech Recognition
+// Resilient Speech Recognition (Push-to-Talk & Continuous)
 let recognition = null;
-if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-  recognition = new SpeechRec();
-  recognition.continuous = false;
-  recognition.interimResults = true;
-  recognition.lang = 'hi-IN';
+let speechTimeout = null;
+let accumulatedTranscript = '';
 
-  recognition.onstart = () => {
+function createRecognition() {
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRec) return null;
+
+  if (recognition) {
+    try { recognition.abort(); } catch (e) {}
+    recognition = null;
+  }
+
+  const rec = new SpeechRec();
+  // Keep continuous true so browser does not abort session on brief pause
+  rec.continuous = true;
+  rec.interimResults = true;
+  rec.maxAlternatives = 1;
+  // Multi-accent language model (handles English, Hinglish & Hindi)
+  rec.lang = (navigator.language && navigator.language.startsWith('hi')) ? 'hi-IN' : 'en-IN';
+
+  rec.onstart = () => {
     isListening = true;
     showVoiceAvatar();
-    if (siriAvatar) siriAvatar.classList.add('listening');
+    if (siriAvatar) {
+      siriAvatar.classList.add('listening');
+      siriAvatar.classList.remove('speaking');
+    }
     if (btnMic) btnMic.classList.add('active-listening');
-    if (voiceStateText) voiceStateText.textContent = 'Listening...';
-    startAudioWaveVisualizer();
+    if (voiceStateText) voiceStateText.textContent = isContinuousMode ? 'Continuous Listening...' : 'Listening... Speak prompt';
+    if (spokenText && (!spokenText.textContent || spokenText.textContent === '""' || spokenText.textContent.includes('Speak your prompt'))) {
+      spokenText.textContent = '"Listening..."';
+    }
   };
 
-  recognition.onresult = (event) => {
+  rec.onresult = (event) => {
     let interim = '';
-    let finalTranscript = '';
+    let finalChunk = '';
     for (let i = event.resultIndex; i < event.results.length; ++i) {
-      if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
-      else interim += event.results[i][0].transcript;
-    }
-    const currentText = (finalTranscript || interim).trim();
-    if (currentText && spokenText) spokenText.textContent = `"${currentText}"`;
-
-    if (finalTranscript) {
-      const lower = finalTranscript.toLowerCase().trim();
-      if (isContinuousMode) {
-        if (lower.includes('aegis') || lower.includes('suno') || lower.includes('namaste')) {
-          dispatchCommand(finalTranscript);
-        }
+      if (event.results[i].isFinal) {
+        finalChunk += event.results[i][0].transcript;
       } else {
-        dispatchCommand(finalTranscript);
+        interim += event.results[i][0].transcript;
+      }
+    }
+
+    if (finalChunk) {
+      accumulatedTranscript = (accumulatedTranscript + ' ' + finalChunk).trim();
+    }
+
+    const currentDisplay = (accumulatedTranscript + ' ' + interim).trim();
+    if (currentDisplay) {
+      if (spokenText) spokenText.textContent = `"${currentDisplay}"`;
+      if (cmdInput) cmdInput.value = currentDisplay;
+    }
+
+    // In push-to-talk mode: auto-dispatch on pause
+    if (!isContinuousMode) {
+      clearTimeout(speechTimeout);
+      speechTimeout = setTimeout(() => {
+        const textToDispatch = (accumulatedTranscript || currentDisplay).trim();
+        if (textToDispatch) {
+          accumulatedTranscript = '';
+          dispatchCommand(textToDispatch);
+          stopListeningState();
+        }
+      }, 1200);
+    } else {
+      // Continuous mode: check wake word or final chunk
+      if (finalChunk) {
+        const lower = finalChunk.toLowerCase().trim();
+        if (lower.includes('aegis') || lower.includes('suno') || lower.includes('namaste')) {
+          dispatchCommand(finalChunk);
+          accumulatedTranscript = '';
+        }
       }
     }
   };
 
-  recognition.onerror = () => {
-    if (!isContinuousMode) stopListeningState();
-  };
-
-  recognition.onend = () => {
-    if (isContinuousMode) {
-      setTimeout(() => {
-        if (isContinuousMode) {
-          try { recognition.start(); } catch (err) {}
-        }
-      }, 350);
-    } else {
+  rec.onerror = (e) => {
+    console.warn('Speech recognition error:', e.error);
+    // Ignore benign silence and abort errors
+    if (e.error === 'no-speech' || e.error === 'aborted') {
+      return;
+    }
+    if (!isContinuousMode) {
+      if (accumulatedTranscript.trim()) {
+        const t = accumulatedTranscript.trim();
+        accumulatedTranscript = '';
+        dispatchCommand(t);
+      }
       stopListeningState();
     }
   };
+
+  rec.onend = () => {
+    if (!isListening) return;
+
+    if (isContinuousMode) {
+      setTimeout(() => {
+        if (isListening && isContinuousMode) {
+          try {
+            recognition = createRecognition();
+            recognition?.start();
+          } catch (e) {}
+        }
+      }, 300);
+    } else {
+      // In push-to-talk mode:
+      if (accumulatedTranscript.trim()) {
+        const t = accumulatedTranscript.trim();
+        accumulatedTranscript = '';
+        dispatchCommand(t);
+        stopListeningState();
+      } else if (isListening) {
+        // If Chrome closed connection due to silence timeout while user hasn't clicked stop:
+        try {
+          recognition = createRecognition();
+          recognition?.start();
+        } catch (e) {
+          stopListeningState();
+        }
+      }
+    }
+  };
+
+  return rec;
 }
 
 function startListeningState() {
-  if (!recognition) return;
+  clearTimeout(speechTimeout);
+  accumulatedTranscript = '';
+  isListening = true;
+
+  // Immediate synchronous DOM updates
   showVoiceAvatar();
-  try { recognition.start(); } catch (err) {}
+  if (siriAvatar) {
+    siriAvatar.classList.add('listening');
+    siriAvatar.classList.remove('speaking');
+  }
+  if (btnMic) btnMic.classList.add('active-listening');
+  if (voiceStateText) voiceStateText.textContent = isContinuousMode ? 'Continuous Listening...' : 'Listening... Speak prompt';
+  if (spokenText) spokenText.textContent = '"Listening..."';
+  startAudioWaveVisualizer();
+
+  recognition = createRecognition();
+  if (!recognition) {
+    console.warn('SpeechRecognition API not available on this browser.');
+    return;
+  }
+  try {
+    recognition.start();
+  } catch (err) {
+    console.warn('Recognition start error:', err);
+  }
 }
 
 function stopListeningState() {
+  clearTimeout(speechTimeout);
   isListening = false;
+  if (recognition) {
+    try { recognition.stop(); } catch (e) {}
+  }
   if (siriAvatar) siriAvatar.classList.remove('listening');
   if (btnMic) btnMic.classList.remove('active-listening');
   if (voiceStateText) voiceStateText.textContent = 'Ready';
@@ -1011,7 +1183,11 @@ function stopListeningState() {
 
 function toggleVoiceListening() {
   if (isListening) {
-    try { recognition.stop(); } catch (e) {}
+    if (accumulatedTranscript.trim()) {
+      const t = accumulatedTranscript.trim();
+      accumulatedTranscript = '';
+      dispatchCommand(t);
+    }
     stopListeningState();
   } else {
     startListeningState();
@@ -1020,6 +1196,11 @@ function toggleVoiceListening() {
 
 siriAvatar?.addEventListener('click', toggleVoiceListening);
 btnMic?.addEventListener('click', toggleVoiceListening);
+
+window.speakAudioResponse = speakAudioResponse;
+window.toggleVoiceListening = toggleVoiceListening;
+window.startListeningState = startListeningState;
+window.stopListeningState = stopListeningState;
 
 btnToggleContinuous?.addEventListener('click', () => {
   isContinuousMode = !isContinuousMode;
@@ -1031,7 +1212,6 @@ btnToggleContinuous?.addEventListener('click', () => {
     btnToggleContinuous.classList.remove('active');
     continuousLabel.textContent = 'Continuous: OFF';
     stopListeningState();
-    try { recognition.stop(); } catch (e) {}
   }
 });
 
@@ -1074,6 +1254,11 @@ async function dispatchCommand(commandText) {
   attachedFile = null;
   if (fileAttachmentInput) fileAttachmentInput.value = '';
   if (attachedFilePill) attachedFilePill.classList.add('hidden');
+
+  // If voice was listening, close mic during pipeline processing
+  if (isListening) {
+    stopListeningState();
+  }
 
   lastFailedCommand = prompt;
   hide404Error();
