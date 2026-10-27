@@ -68,15 +68,15 @@ def create_app(state_mgr: StateManager, orchestrator: Orchestrator, safety: Safe
         },
         "dgx-node-3": {
             "role": "Multimodal Vision & UI Architect",
-            "model": "llama3.2-vision:11b",
-            "num_ctx": 32768,   # 32K context window
+            "model": "llama3.2-vision:90b",
+            "num_ctx": 65536,   # 64K context window (90B Multimodal Flagship)
             "stage_suffix": "_arch",
             "stage_title": "Stage 3: Vision Pipeline & Glassmorphic UI Architecture"
         },
         "dgx-node-4": {
             "role": "Deep Reasoner & Logic Optimizer",
-            "model": "qwen2.5:32b",
-            "num_ctx": 131072,  # 128K context window
+            "model": "mixtral:8x22b",
+            "num_ctx": 65536,   # 64K context window (141B Sparse MoE / 39B Active)
             "stage_suffix": "_opt",
             "stage_title": "Stage 4: Deep Reasoning, Latency Optimization & Betterment"
         },

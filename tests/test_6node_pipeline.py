@@ -63,14 +63,14 @@ class TestSixNodePipeline(unittest.TestCase):
 
         # Node 4 heartbeat should now receive Stage 3 Deep Reasoning & Betterment
         hb4 = self.client.post("/api/heartbeat", json={
-            "node_id": "dgx-node-4", "status": "online", "active_model": "qwen2.5:32b",
+            "node_id": "dgx-node-4", "status": "online", "active_model": "mixtral:8x22b",
             "cpu_percent": 10.0, "ram_percent": 20.0, "gpu": {"utilization_pct": 0.0, "vram_used_mb": 0, "vram_total_mb": 131072, "temperature_c": 35}
         })
         self.assertEqual(hb4.status_code, 200)
         data4 = hb4.json()
         self.assertTrue(data4["has_task"])
-        self.assertEqual(data4["task"]["model"], "qwen2.5:32b")
-        self.assertEqual(data4["task"]["num_ctx"], 131072)
+        self.assertEqual(data4["task"]["model"], "mixtral:8x22b")
+        self.assertEqual(data4["task"]["num_ctx"], 65536)
 
         # Stage 3 completes on Node 4
         comp4 = self.client.post("/api/dgx/complete", json={

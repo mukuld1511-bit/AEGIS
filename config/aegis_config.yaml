@@ -71,15 +71,17 @@ pipeline_rules:
     - stage: 3
       node: "dgx-node-3"
       role: "Multimodal Vision & UI Architect"
+      model: "llama3.2-vision:90b"
       task_suffix: "_arch"
       purpose: "OpenCV visual pipeline, user interface architecture, system diagram generation"
-      context_window: 32768
+      context_window: 65536
     - stage: 4
       node: "dgx-node-4"
       role: "Deep Reasoner & Logic Optimizer"
+      model: "mixtral:8x22b"
       task_suffix: "_opt"
       purpose: "System betterment, latency optimization, concurrency refactoring, performance profiling"
-      context_window: 131072
+      context_window: 65536
     - stage: 5
       node: "dgx-node-5"
       role: "Security & Vulnerability Auditor"
@@ -105,8 +107,8 @@ context_windows:
   node_defaults:
     dgx-node-1: 131072 # Qwen2.5-Coder-32B: 128K Context Leader
     dgx-node-2: 65536  # Qwen2.5-Coder-32B: 64K Test Suite & Review
-    dgx-node-3: 32768  # Llama3.2-Vision-11B: 32K Multimodal Vision
-    dgx-node-4: 131072 # Qwen2.5-32B: 128K Deep Reasoning & Planning
+    dgx-node-3: 65536  # Llama3.2-Vision-90B: 64K Flagship Multimodal Vision
+    dgx-node-4: 65536  # Mixtral-8x22B: 64K MoE Deep Reasoner (141B / 39B Active)
     dgx-node-5: 131072 # Command R+: 128K Security & Vulnerability Scan
     dgx-node-6: 32768  # Llama3.2-Vision-11B: 32K Generative Studio
     dgx-node-7: 65536  # DBRX Tool Agent: 64K

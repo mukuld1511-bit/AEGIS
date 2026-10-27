@@ -10,7 +10,7 @@ NODE_ID="dgx-node-4"
 ROLE="Writer & Deep Reasoner"
 GATEWAY_URL="https://raspberrypi.tailc8c1f6.ts.net"
 STORAGE_URL="https://labg418pc12.tailc8c1f6.ts.net:8443"
-MODEL_NAME="qwen2.5:32b"
+MODEL_NAME="mixtral:8x22b"
 
 AEGIS_DIR="$HOME/aegis/${NODE_ID}"
 AGENT_FILE="$AEGIS_DIR/dgx_agent.py"
