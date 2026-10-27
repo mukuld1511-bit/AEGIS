@@ -14,6 +14,7 @@ from collections import defaultdict
 import asyncio
 import json
 import time
+import re
 
 from aegis_core.models import NodeTelemetry, TaskRecord, HeartbeatCommand, CommandResult
 from aegis_core.state_manager import StateManager
@@ -48,6 +49,52 @@ def create_app(state_mgr: StateManager, orchestrator: Orchestrator, safety: Safe
     node_task_queues: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     client_command_queues: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     latest_screenshots: Dict[str, str] = {}
+    active_pipelines: Dict[str, Dict[str, Any]] = {}
+
+    NODE_PIPELINE_SPECS = {
+        "dgx-node-1": {
+            "role": "Lead Coder",
+            "model": "qwen2.5-coder:32b",
+            "num_ctx": 131072,  # 128K context window
+            "stage_suffix": "_code",
+            "stage_title": "Stage 1: Core Algorithm & Full-Stack Generation"
+        },
+        "dgx-node-2": {
+            "role": "QA Verifier & Reviewer",
+            "model": "qwen2.5-coder:32b",
+            "num_ctx": 65536,   # 64K context window
+            "stage_suffix": "_qa",
+            "stage_title": "Stage 2: QA Review & Automated Pytest Generation"
+        },
+        "dgx-node-3": {
+            "role": "Multimodal Vision & UI Architect",
+            "model": "llama3.2-vision:11b",
+            "num_ctx": 32768,   # 32K context window
+            "stage_suffix": "_arch",
+            "stage_title": "Stage 3: Vision Pipeline & Glassmorphic UI Architecture"
+        },
+        "dgx-node-4": {
+            "role": "Deep Reasoner & Logic Optimizer",
+            "model": "qwen2.5:32b",
+            "num_ctx": 131072,  # 128K context window
+            "stage_suffix": "_opt",
+            "stage_title": "Stage 4: Deep Reasoning, Latency Optimization & Betterment"
+        },
+        "dgx-node-5": {
+            "role": "Security & Vulnerability Auditor",
+            "model": "command-r-plus",
+            "num_ctx": 131072,  # 128K context window
+            "stage_suffix": "_sec",
+            "stage_title": "Stage 5: Vulnerability Audit, CVE Check & Defensive Hardening"
+        },
+        "dgx-node-6": {
+            "role": "Generative Studio & Documentation",
+            "model": "llama3.2-vision:11b",
+            "num_ctx": 32768,   # 32K context window
+            "stage_suffix": "_doc",
+            "stage_title": "Stage 6: Generative Mockups, API Documentation & Release Package"
+        }
+    }
 
     # Broadcast state updates to WebSocket clients
     async def ws_broadcaster(event_payload: Dict[str, Any]):
@@ -292,72 +339,177 @@ def create_app(state_mgr: StateManager, orchestrator: Orchestrator, safety: Safe
         state_mgr.complete_task(payload.task_id, summary=payload.stdout[:200])
         state_mgr._broadcast("dgx_task_finished", payload.model_dump(mode="json"))
 
-        # Determine if this task is part of the 4-node autonomous pipeline:
-        # dgx-node-1 (Coder) -> dgx-node-2 (QA & Review) -> dgx-node-3 (Vision & Arch) -> dgx-node-4 (Deep Reasoner & Security)
         task_id = payload.task_id
         storage_base = "http://100.88.197.6:9080/api/storage"
 
-        next_stage = None
+        # Determine original base task ID by stripping stage suffixes
         orig_task = task_id
-        if task_id.endswith("_sec") or task_id.endswith("_opt"):
-            # Final pipeline stage completed on dgx-node-4
-            orig_task = task_id[:-4]
-            state_mgr._broadcast("pipeline_completed", {
-                "original_task_id": orig_task,
-                "final_node": payload.node_id,
-                "summary": "Full multi-node cluster synthesis, QA review & deep betterment pipeline completed successfully."
-            })
-        elif task_id.endswith("_arch"):
-            # Stage 3 completed on dgx-node-3 -> handoff to dgx-node-4
-            orig_task = task_id[:-5]
-            next_stage = {
-                "target_node": "dgx-node-4",
-                "task_id": f"{orig_task}_opt",
-                "model": "mixtral:8x22b",
-                "num_ctx": 65536,
-                "prompt": (
-                    f"You are the Principal Sentinel & Deep Reasoner on DGX Node 4.\n"
-                    f"Perform deep architectural betterment and vulnerability audit on task '{orig_task}'.\n"
-                    f"Stage 1 code, Stage 2 QA report, and Stage 3 Architectural assessment are present in your workspace.\n\n"
-                    f"Provide formal correctness verification and output the certified hardened implementation.\n"
-                    f"Prefix final production file with '# filename: enhanced_solution.py' on line 1."
-                ),
-                "stage_name": "Stage 4: Deep Reasoning & System Betterment"
-            }
-        elif task_id.endswith("_qa") or task_id.endswith("_rev"):
-            # Stage 2 completed on dgx-node-2 -> handoff directly to dgx-node-4 (Deep Reasoner & Betterment)
-            orig_task = task_id[:-3] if task_id.endswith("_qa") else task_id[:-4]
-            next_stage = {
-                "target_node": "dgx-node-4",
-                "task_id": f"{orig_task}_opt",
-                "model": "mixtral:8x22b",
-                "num_ctx": 65536,
-                "prompt": (
-                    f"You are DGX Spark 04 - Deep Reasoner & System Optimizer.\n"
-                    f"Perform deep betterment, enhancement, and optimization on task '{orig_task}'.\n"
-                    f"Original Stage 1 code and Stage 2 QA test suite:\n\n"
-                    f"{payload.stdout[:2500]}\n\n"
-                    f"Enhance and optimize this implementation with advanced features, real-time streaming, and robust error handling.\n"
-                    f"Save your enhanced solution with '# filename: enhanced_opencv_studio.py' on line 1."
-                ),
-                "stage_name": "Stage 3: Deep Reasoning & System Betterment"
-            }
-        elif payload.node_id == "dgx-node-1":
-            # Stage 1 completed on dgx-node-1 -> handoff to dgx-node-2
-            next_stage = {
-                "target_node": "dgx-node-2",
-                "task_id": f"{orig_task}_qa",
-                "model": "qwen2.5-coder:32b",
-                "num_ctx": 65536,
-                "prompt": (
-                    f"You are the Lead QA & Code Reviewer on DGX Node 2.\n"
-                    f"Review the generated code for task '{orig_task}' executed by Node 1:\n\n"
-                    f"{payload.stdout[:2000]}\n\n"
-                    f"Write comprehensive pytest unit tests and edge-case validations.\n"
-                    f"Save your tests with '# filename: test_suite.py' on the first line."
-                ),
-                "stage_name": "Stage 2: QA Review & Test Automation"
-            }
+        for sfx in ["_qa", "_arch", "_opt", "_sec", "_doc", "_rev", "_vis"]:
+            if orig_task.endswith(sfx):
+                orig_task = orig_task[:-len(sfx)]
+                break
+
+        # Check if an active dynamic or custom multi-node pipeline was registered
+        pipe_info = active_pipelines.get(orig_task)
+        next_stage = None
+
+        if pipe_info:
+            pipe_info["current_index"] += 1
+            idx = pipe_info["current_index"]
+            chain = pipe_info["chain"]
+            if idx < len(chain):
+                target_node = chain[idx]
+                spec = NODE_PIPELINE_SPECS.get(target_node, NODE_PIPELINE_SPECS["dgx-node-2"])
+                stage_sfx = spec["stage_suffix"]
+                next_task_id = f"{orig_task}{stage_sfx}"
+                stage_name = f"Stage {idx + 1}: {spec['role']}"
+
+                # Generate customized role prompt
+                if target_node == "dgx-node-2":
+                    prompt_text = (
+                        f"You are the Lead QA & Code Reviewer on DGX Node 2.\n"
+                        f"Review the generated code for task '{orig_task}' executed by {payload.node_id}:\n\n"
+                        f"Write comprehensive pytest unit tests, boundary tests, and edge-case validations.\n"
+                        f"Save your test suite with '# filename: test_suite.py' on line 1.\n"
+                        f"Provide a structured QA Audit report with '# filename: QA_AUDIT_REPORT.md'."
+                    )
+                elif target_node == "dgx-node-3":
+                    prompt_text = (
+                        f"You are DGX Spark 03: Multimodal Vision & Visual Systems Architect.\n"
+                        f"Task: '{orig_task}'.\n"
+                        f"Design the visual pipeline, UI components, or OpenCV integration for this system.\n"
+                        f"Include system architecture in Mermaid.js and modern glassmorphic interface '# filename: visual_interface.html' or '# filename: opencv_pipeline.py'."
+                    )
+                elif target_node == "dgx-node-4":
+                    prompt_text = (
+                        f"You are DGX Spark 04: Chief System Architect & Deep Reasoner.\n"
+                        f"Perform deep algorithmic betterment, latency profiling, and system optimization on task '{orig_task}'.\n"
+                        f"Refactor concurrency, optimize time/space complexity, and output the certified enhanced implementation.\n"
+                        f"Save your enhanced solution with '# filename: enhanced_solution.py' on line 1."
+                    )
+                elif target_node == "dgx-node-5":
+                    prompt_text = (
+                        f"You are DGX Spark 05: Cybersecurity & Vulnerability Auditor.\n"
+                        f"Perform thorough static security analysis, CVE scanning, and defensive hardening on task '{orig_task}'.\n"
+                        f"Check OWASP vulnerabilities, input sanitization, memory safety, and jailbreak defense.\n"
+                        f"Save hardened production code with '# filename: security_hardened_solution.py' and an audit summary '# filename: SECURITY_AUDIT.md'."
+                    )
+                elif target_node == "dgx-node-6":
+                    prompt_text = (
+                        f"You are DGX Spark 06: Generative Studio & Production Release Packager.\n"
+                        f"Create complete developer documentation, visual mockups, API reference specs, and deployment guides for task '{orig_task}'.\n"
+                        f"Save '# filename: README.md', '# filename: API_SPEC.md', and '# filename: deploy.sh'."
+                    )
+                else:
+                    prompt_text = (
+                        f"Continue processing pipeline for task '{orig_task}' on {target_node}.\n"
+                        f"Prior stage generated code and context is attached."
+                    )
+
+                next_stage = {
+                    "target_node": target_node,
+                    "task_id": next_task_id,
+                    "model": spec["model"],
+                    "num_ctx": spec["num_ctx"],
+                    "prompt": prompt_text,
+                    "stage_name": stage_name,
+                    "prior_code": payload.stdout
+                }
+            else:
+                # Pipeline finished!
+                state_mgr._broadcast("pipeline_completed", {
+                    "original_task_id": orig_task,
+                    "final_node": payload.node_id,
+                    "summary": f"Full multi-node cluster pipeline ({' -> '.join(chain)}) completed successfully."
+                })
+                active_pipelines.pop(orig_task, None)
+        else:
+            # Fallback 6-Node Autonomous Chain:
+            # dgx-node-1 -> dgx-node-2 -> dgx-node-3 -> dgx-node-4 -> dgx-node-5 -> dgx-node-6
+            if payload.node_id == "dgx-node-1":
+                spec = NODE_PIPELINE_SPECS["dgx-node-2"]
+                next_stage = {
+                    "target_node": "dgx-node-2",
+                    "task_id": f"{orig_task}_qa",
+                    "model": spec["model"],
+                    "num_ctx": spec["num_ctx"],
+                    "prompt": (
+                        f"You are the Lead QA & Code Reviewer on DGX Node 2.\n"
+                        f"Review the generated code for task '{orig_task}' executed by Node 1:\n\n"
+                        f"Write comprehensive pytest unit tests and edge-case validations.\n"
+                        f"Save your tests with '# filename: test_suite.py' on the first line."
+                    ),
+                    "stage_name": "Stage 2: QA Review & Test Automation",
+                    "prior_code": payload.stdout
+                }
+            elif payload.node_id == "dgx-node-2":
+                spec = NODE_PIPELINE_SPECS["dgx-node-3"]
+                next_stage = {
+                    "target_node": "dgx-node-3",
+                    "task_id": f"{orig_task}_arch",
+                    "model": spec["model"],
+                    "num_ctx": spec["num_ctx"],
+                    "prompt": (
+                        f"You are DGX Spark 03: Multimodal Vision & UI Architect.\n"
+                        f"Design the visual architecture, glassmorphic UI, or OpenCV visual pipeline for '{orig_task}'.\n"
+                        f"Save '# filename: visual_interface.html' or '# filename: opencv_pipeline.py'."
+                    ),
+                    "stage_name": "Stage 3: Vision & UI Architecture",
+                    "prior_code": payload.stdout
+                }
+            elif payload.node_id == "dgx-node-3":
+                spec = NODE_PIPELINE_SPECS["dgx-node-4"]
+                next_stage = {
+                    "target_node": "dgx-node-4",
+                    "task_id": f"{orig_task}_opt",
+                    "model": spec["model"],
+                    "num_ctx": spec["num_ctx"],
+                    "prompt": (
+                        f"You are DGX Spark 04: Chief System Architect & Deep Reasoner.\n"
+                        f"Perform deep architectural betterment and latency optimization on task '{orig_task}'.\n"
+                        f"Refactor concurrency, optimize time/space complexity, and output the certified hardened implementation.\n"
+                        f"Save with '# filename: enhanced_solution.py' on line 1."
+                    ),
+                    "stage_name": "Stage 4: Deep Reasoning & System Betterment",
+                    "prior_code": payload.stdout
+                }
+            elif payload.node_id == "dgx-node-4":
+                spec = NODE_PIPELINE_SPECS["dgx-node-5"]
+                next_stage = {
+                    "target_node": "dgx-node-5",
+                    "task_id": f"{orig_task}_sec",
+                    "model": spec["model"],
+                    "num_ctx": spec["num_ctx"],
+                    "prompt": (
+                        f"You are DGX Spark 05: Cybersecurity & Vulnerability Auditor.\n"
+                        f"Perform comprehensive vulnerability scanning and CVE checks on task '{orig_task}'.\n"
+                        f"Sanitize all inputs and output certified security-hardened code.\n"
+                        f"Save with '# filename: security_hardened_solution.py' and '# filename: SECURITY_AUDIT.md'."
+                    ),
+                    "stage_name": "Stage 5: Security & Vulnerability Audit",
+                    "prior_code": payload.stdout
+                }
+            elif payload.node_id == "dgx-node-5":
+                spec = NODE_PIPELINE_SPECS["dgx-node-6"]
+                next_stage = {
+                    "target_node": "dgx-node-6",
+                    "task_id": f"{orig_task}_doc",
+                    "model": spec["model"],
+                    "num_ctx": spec["num_ctx"],
+                    "prompt": (
+                        f"You are DGX Spark 06: Generative Studio & Production Release Packager.\n"
+                        f"Create complete developer documentation, visual mockups, and deployment guides for task '{orig_task}'.\n"
+                        f"Save with '# filename: README.md' and '# filename: deploy.sh'."
+                    ),
+                    "stage_name": "Stage 6: Generative Studio & Release Package",
+                    "prior_code": payload.stdout
+                }
+            elif payload.node_id == "dgx-node-6":
+                state_mgr._broadcast("pipeline_completed", {
+                    "original_task_id": orig_task,
+                    "final_node": payload.node_id,
+                    "summary": "Full 6-node cluster synthesis, QA review, vision architecture, deep betterment, security audit & documentation release completed successfully."
+                })
 
         if next_stage:
             t_node = next_stage["target_node"]
@@ -367,6 +519,7 @@ def create_app(state_mgr: StateManager, orchestrator: Orchestrator, safety: Safe
                 "command": None,
                 "model": next_stage["model"],
                 "num_ctx": next_stage.get("num_ctx", 65536),
+                "prior_code": next_stage.get("prior_code", ""),
                 "target_file": payload.generated_file,
                 "dictated_upload_cmd": None,
                 "is_pipeline_handoff": True,
@@ -394,13 +547,34 @@ def create_app(state_mgr: StateManager, orchestrator: Orchestrator, safety: Safe
             assigned_node = res.get("assigned_node", pref_node or "dgx-node-1")
             task_id = res.get("task_id")
 
-            # Enqueue for reverse heartbeat pick-up
+            # Parse custom multi-node pipelines (e.g., "from node 1 send it to review from node 2 then to node 4")
+            p_lower = payload.command.lower()
+            extracted_nodes = []
+            for m in re.finditer(r"(?:node|dgx)\s*([1-6])", p_lower):
+                n_id = f"dgx-node-{m.group(1)}"
+                if not extracted_nodes or extracted_nodes[-1] != n_id:
+                    extracted_nodes.append(n_id)
+
+            is_pipeline = ("pipeline" in p_lower or "workflow" in p_lower or "handoff" in p_lower or len(extracted_nodes) > 1)
+            if is_pipeline:
+                chain = extracted_nodes if len(extracted_nodes) > 1 else [
+                    "dgx-node-1", "dgx-node-2", "dgx-node-3", "dgx-node-4", "dgx-node-5", "dgx-node-6"
+                ]
+                assigned_node = chain[0]
+                active_pipelines[task_id] = {
+                    "chain": chain,
+                    "current_index": 0,
+                    "original_prompt": payload.command,
+                    "task_id": task_id
+                }
+
+            spec = NODE_PIPELINE_SPECS.get(assigned_node, NODE_PIPELINE_SPECS["dgx-node-1"])
             task_payload = {
                 "task_id": task_id,
                 "prompt": payload.command,
-                "command": None, # Will run local Ollama LLM on DGX
-                "model": "qwen2.5-coder:32b",
-                "num_ctx": 65536,
+                "command": None,
+                "model": spec["model"],
+                "num_ctx": spec["num_ctx"],
                 "dictated_upload_cmd": f"rclone copyto ./workspace/{task_id}_output.py gdrive:/AEGIS_Cluster_Artifacts/{task_id}/ || true",
                 "storage_vault_url": f"http://100.88.197.6:9080/api/storage/{assigned_node}/upload/{task_id}"
             }

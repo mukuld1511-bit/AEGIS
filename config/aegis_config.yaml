@@ -49,12 +49,73 @@ safety:
 scheduling:
   enable_multi_node_handoff: true
   default_review_node: "dgx-node-2" # Verifier & Code Reviewer
-  task_timeout_seconds: 600
+  task_timeout_seconds: 900
   heartbeat_interval_seconds: 5
   node_offline_threshold_seconds: 15
+
+# Intermediate Multi-Node Coordination & Pipeline Rules
+pipeline_rules:
+  autonomous_pipeline_stages:
+    - stage: 1
+      node: "dgx-node-1"
+      role: "Lead Coder"
+      task_suffix: "_code"
+      purpose: "Core algorithm generation, full-stack architecture, clean implementation"
+      context_window: 131072
+    - stage: 2
+      node: "dgx-node-2"
+      role: "QA Verifier"
+      task_suffix: "_qa"
+      purpose: "Deep code review, automated pytest test suite generation, edge case validation"
+      context_window: 65536
+    - stage: 3
+      node: "dgx-node-3"
+      role: "Multimodal Vision & UI Architect"
+      task_suffix: "_arch"
+      purpose: "OpenCV visual pipeline, user interface architecture, system diagram generation"
+      context_window: 32768
+    - stage: 4
+      node: "dgx-node-4"
+      role: "Deep Reasoner & Logic Optimizer"
+      task_suffix: "_opt"
+      purpose: "System betterment, latency optimization, concurrency refactoring, performance profiling"
+      context_window: 131072
+    - stage: 5
+      node: "dgx-node-5"
+      role: "Security & Vulnerability Auditor"
+      task_suffix: "_sec"
+      purpose: "CVE checks, vulnerability scans, input sanitization, zero-day defense hardening"
+      context_window: 131072
+    - stage: 6
+      node: "dgx-node-6"
+      role: "Generative Studio & Documentation"
+      task_suffix: "_doc"
+      purpose: "Visual mockup render, API specification documentation, production bundle release"
+      context_window: 32768
+
+  handoff_rules:
+    auto_pass_previous_artifacts: true
+    max_context_bytes_per_file: 100000
+    store_in_shared_vault: true
+    notify_on_stage_complete: true
+
+context_windows:
+  cluster_default: 65536
+  cluster_max: 131072
+  node_defaults:
+    dgx-node-1: 131072 # Qwen2.5-Coder-32B: 128K Context Leader
+    dgx-node-2: 65536  # Qwen2.5-Coder-32B: 64K Test Suite & Review
+    dgx-node-3: 32768  # Llama3.2-Vision-11B: 32K Multimodal Vision
+    dgx-node-4: 131072 # Qwen2.5-32B: 128K Deep Reasoning & Planning
+    dgx-node-5: 131072 # Command R+: 128K Security & Vulnerability Scan
+    dgx-node-6: 32768  # Llama3.2-Vision-11B: 32K Generative Studio
+    dgx-node-7: 65536  # DBRX Tool Agent: 64K
+    dgx-node-8: 65536  # Mixtral: 64K
 
 llm_defaults:
   local_engine: "ollama" # ollama or vllm
   api_base_url: "http://127.0.0.1:11434"
-  context_window: 8192
+  context_window: 65536
+  max_context_window: 131072
   temperature: 0.2
+

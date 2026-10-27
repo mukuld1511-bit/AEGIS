@@ -2423,6 +2423,9 @@ class DGXStandaloneAgent:
         # Multi-Agent Context Injection: If parent task exists, inject its generated files
         parent_id = task.get("parent_task_id")
         context_files = []
+        if task.get("prior_code"):
+            context_files.append(("prior_stage_solution.py", str(task.get("prior_code"))[:100000]))
+
         if parent_id:
             parent_dir = os.path.join("./workspace", parent_id)
             if os.path.exists(parent_dir):
@@ -2431,7 +2434,7 @@ class DGXStandaloneAgent:
                         fp = os.path.join(parent_dir, f)
                         try:
                             with open(fp, "r", encoding="utf-8", errors="ignore") as cfile:
-                                context_files.append((f, cfile.read()[:8000]))
+                                context_files.append((f, cfile.read()[:100000]))
                         except Exception:
                             pass
 
