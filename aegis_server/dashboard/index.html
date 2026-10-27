@@ -48,11 +48,14 @@
         <!-- Route Selector -->
         <div class="route-picker-wrap">
           <select id="route-selector" class="route-selector-pill" title="Execution Route">
-            <option value="pipeline" selected>⚡ 4-Node Pipeline (N1 ➔ N4)</option>
-            <option value="dgx-node-1">DGX-1 (Lead Coder - 32B)</option>
-            <option value="dgx-node-2">DGX-2 (QA Reviewer - 32B)</option>
-            <option value="dgx-node-3">DGX-3 (Systems Arch - 90B)</option>
-            <option value="dgx-node-4">DGX-4 (Security Sentinel - 141B)</option>
+            <option value="auto" selected>✨ Auto-Route by Intent (Zero Config)</option>
+            <option value="pipeline">⚡ 4-Node Multi-Agent Pipeline</option>
+            <option value="dgx-node-1">DGX-1 (Lead Coder - Qwen 32B)</option>
+            <option value="dgx-node-2">DGX-2 (QA Reviewer & PyTest)</option>
+            <option value="dgx-node-3">DGX-3 (Computer Vision - Llama 3.2 90B)</option>
+            <option value="dgx-node-4">DGX-4 (Writer & Deep Reasoner - Mixtral 8x22B)</option>
+            <option value="dgx-node-5">DGX-5 (Security Sentinel - Command R+ 104B)</option>
+            <option value="dgx-node-6">DGX-6 (Generative Studio - Llama 3.2 11B)</option>
           </select>
         </div>
 

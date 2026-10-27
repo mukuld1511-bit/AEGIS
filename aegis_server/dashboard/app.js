@@ -660,8 +660,11 @@ function renderMessageToDOM(msg) {
   } else {
     // Assistant Response
     let bodyHtml = '';
+    if (msg.text) {
+      bodyHtml += `<div class="msg-pure-text" style="margin-bottom:0.85rem;line-height:1.6;color:var(--text-main);">${formatMarkdownToHTML(msg.text)}</div>`;
+    }
     if (msg.code) {
-      bodyHtml = `
+      bodyHtml += `
         <div class="msg-code-block">
           <div class="code-block-header">
             <span class="code-lang-tag">python</span>
@@ -670,9 +673,6 @@ function renderMessageToDOM(msg) {
           <pre class="code-pre"><code>${escapeHtml(msg.code)}</code></pre>
         </div>
       `;
-    }
-    if (msg.text) {
-      bodyHtml += `<div class="msg-pure-text">${escapeHtml(msg.text)}</div>`;
     }
 
     msgRow.innerHTML = `
@@ -736,7 +736,13 @@ window.downloadSnippetFromCard = function(btn) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'aegis_solution.py';
+
+  // Extract filename if provided in model tag (e.g. "⚡ dgx-node-3 (opencv_vision_studio.py)")
+  const modelInfo = card ? card.querySelector('.msg-model-info strong')?.textContent : '';
+  const match = modelInfo ? modelInfo.match(/\((.*?)\)/) : null;
+  const filename = (match && match[1]) ? match[1].trim() : 'aegis_solution.py';
+
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -1292,13 +1298,17 @@ async function dispatchCommand(commandText) {
 
   // 3. Dispatch to Server API
   try {
+    const selVal = routeSelector ? routeSelector.value : 'auto';
+    const prefNode = (selVal && selVal !== 'auto' && selVal !== 'pipeline') ? selVal : null;
+    const isPipeline = (selVal === 'pipeline');
+
     const res = await fetch(`${API_BASE}/api/command`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         command: prompt, 
-        preferred_node: routeSelector ? routeSelector.value : 'dgx-node-1',
-        pipeline_mode: true,
+        preferred_node: prefNode,
+        pipeline_mode: isPipeline,
         attachment: currentAttachmentName
       })
     });
@@ -1316,7 +1326,8 @@ async function dispatchCommand(commandText) {
 
       // Handle real code result
       if (data.result_code) {
-        appendChatMessage('assistant', '', data.result_code, `⚡ ${data.assigned_node || 'DGX-1'} (${data.filename || 'Code'})`);
+        const textMsg = data.text_response || data.spoken_response || `Generated complete implementation for ${data.filename || 'solution'}.`;
+        appendChatMessage('assistant', textMsg, data.result_code, `⚡ ${data.assigned_node || 'DGX-1'} (${data.filename || 'Code'})`);
       } else if (data.cluster_summary) {
         // Format live cluster summary
         const summaryLines = Object.entries(data.cluster_summary).map(([k, v]) => {
@@ -1469,6 +1480,33 @@ function transmitSignal(from, to, filename, size) {
 function escapeHtml(str) {
   if (!str) return '';
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function formatMarkdownToHTML(md) {
+  if (!md) return '';
+  let html = escapeHtml(md);
+
+  // Headers: ### Title -> <h4>Title</h4>, ## Title -> <h3>Title</h3>
+  html = html.replace(/^### (.*$)/gim, '<h4 style="margin:0.5rem 0 0.35rem 0;font-size:1.05rem;font-weight:700;color:var(--text-main);">$1</h4>');
+  html = html.replace(/^## (.*$)/gim, '<h3 style="margin:0.6rem 0 0.4rem 0;font-size:1.15rem;font-weight:700;color:var(--text-main);">$1</h3>');
+
+  // Bold: **text** -> <strong>text</strong>
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--text-main);">$1</strong>');
+
+  // Inline code: `code`
+  html = html.replace(/`([^`]+)`/g, '<code style="background:rgba(128,128,128,0.15);padding:2px 6px;border-radius:4px;font-family:var(--font-mono);font-size:0.86em;color:#38bdf8;">$1</code>');
+
+  // Code blocks: ```bash ... ```
+  html = html.replace(/```([a-z]*)\n([\s\S]*?)```/g, '<pre style="background:#090d16;color:#e2e8f0;padding:0.6rem 0.8rem;border-radius:8px;font-family:var(--font-mono);font-size:0.84rem;margin:0.5rem 0;overflow-x:auto;border:1px solid #1e293b;"><code>$2</code></pre>');
+
+  // Lists: - item -> <li>item</li>
+  html = html.replace(/^\s*[-*]\s+(.*$)/gim, '<li style="margin-left:1.25rem;margin-bottom:0.25rem;color:var(--text-main);">$1</li>');
+
+  // Spacing & line breaks
+  html = html.replace(/\n\n/g, '<div style="height:0.45rem;"></div>');
+  html = html.replace(/\n/g, '<br/>');
+
+  return html;
 }
 
 document.querySelectorAll('.node-work-card').forEach(card => {

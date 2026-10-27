@@ -15,6 +15,8 @@ import json
 import urllib.request
 import urllib.error
 
+from typing import Optional
+
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
@@ -60,7 +62,7 @@ def show_last_file(node_id: str = DEFAULT_NODE):
         print(f"[!] Error reading file: {e}")
     print(f"==================================================================\n")
 
-def dispatch(prompt_text: str, target: str = DEFAULT_NODE):
+def dispatch(prompt_text: str, target: Optional[str] = None):
     payload = {
         "command": prompt_text,
         "preferred_node": target,
@@ -76,13 +78,14 @@ def dispatch(prompt_text: str, target: str = DEFAULT_NODE):
                 data=data,
                 headers={"Content-Type": "application/json"}
             )
-            with urllib.request.urlopen(req, timeout=5) as resp:
+            with urllib.request.urlopen(req, timeout=15) as resp:
                 result = json.loads(resp.read().decode("utf-8"))
                 task_id = result.get("task_id", "N/A")
-                assigned = result.get("assigned_node", target)
+                assigned = result.get("assigned_node", target or "dgx-node-1")
                 reviewer = result.get("reviewer_node", "N/A")
                 status = result.get("status", "success")
                 speech = result.get("spoken_response", "")
+                text_explanation = result.get("text_response", "")
                 code = result.get("result_code")
                 filename = result.get("filename")
                 vault_path = result.get("vault_path")
@@ -101,11 +104,15 @@ def dispatch(prompt_text: str, target: str = DEFAULT_NODE):
                     print(f"║  Vault Storage: aegis_storage_vault/{vault_path}                ")
                 print(f"╚══════════════════════════════════════════════════════════════════╝")
 
+                if text_explanation:
+                    print(f"\n[AI Solution Explanation & Architecture]:")
+                    print(text_explanation)
+
                 if speech:
                     print(f"\n[AI Voice Dictation]: {speech}")
 
                 if code:
-                    print(f"\n====================== [GENERATED TEXT & CODE] ======================")
+                    print(f"\n====================== [GENERATED PYTHON CODE] ======================")
                     print(code)
                     print(f"====================================================================\n")
 
@@ -120,7 +127,7 @@ def dispatch(prompt_text: str, target: str = DEFAULT_NODE):
 
 if __name__ == "__main__":
     args = sys.argv[1:]
-    target_node = DEFAULT_NODE
+    target_node = None
     
     # Parse --node or -n
     if "--node" in args:
@@ -141,12 +148,15 @@ if __name__ == "__main__":
     else:
         first = args[0].strip()
         if first in ["--list", "-l", "list"]:
-            list_vault_files(target_node)
+            list_vault_files(target_node or DEFAULT_NODE)
             sys.exit(0)
         elif first in ["--last", "-v", "last", "view"]:
-            show_last_file(target_node)
+            show_last_file(target_node or DEFAULT_NODE)
             sys.exit(0)
         prompt = " ".join(args)
 
-    print(f"[*] Prompting {target_node.upper()}: \"{prompt}\"")
+    if target_node:
+        print(f"[*] Prompting {target_node.upper()}: \"{prompt}\"")
+    else:
+        print(f"[*] Auto-Routing Prompt by Intent: \"{prompt}\"")
     dispatch(prompt, target_node)
