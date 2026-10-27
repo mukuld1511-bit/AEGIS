@@ -15,10 +15,13 @@ import json
 import urllib.request
 import urllib.error
 
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
 URLS = [
-    "https://raspberrypi.tailc8c1f6.ts.net/api/command",
     "http://localhost:9000/api/command",
-    "https://labg418pc12.tailc8c1f6.ts.net/api/command"
+    "https://raspberrypi.tailc8c1f6.ts.net/api/command",
+    "https://labg418pc12.tailc8c1f6.ts.net:8443/api/command"
 ]
 
 DEFAULT_NODE = "dgx-node-1"
@@ -44,7 +47,8 @@ def show_last_file(node_id: str = DEFAULT_NODE):
     if not files:
         print(f"\n[!] No files found in vault yet for {node_id}.\n")
         return
-    latest = max(files, key=os.path.getmtime)
+    code_files = [f for f in files if not f.endswith("manifest.json")]
+    latest = max(code_files or files, key=os.path.getmtime)
     print(f"\n==================================================================")
     print(f" Latest Vaulted File ({node_id}): {os.path.relpath(latest, vault_dir)}")
     print(f" Full Path: {latest}")
@@ -79,13 +83,34 @@ def dispatch(prompt_text: str, target: str = DEFAULT_NODE):
                 reviewer = result.get("reviewer_node", "N/A")
                 status = result.get("status", "success")
                 speech = result.get("spoken_response", "")
+                code = result.get("result_code")
+                filename = result.get("filename")
+                vault_path = result.get("vault_path")
+                size_bytes = result.get("size_bytes", 0)
 
-                print(f"\n[OK] Task Dispatched Successfully to {assigned.upper()} via Raspberry Pi Gateway!")
-                print(f"     Status:   {status}")
-                if "message" in result:
-                    print(f"     Message:  {result.get('message')}")
-                print(f"\n--> DGX Dynamic HUD monitor par live code generation stream hogi!")
-                print(f"--> Result central vault me sync hoga: aegis_storage_vault/{assigned}/outputs/\n")
+                print(f"\n╔══════════════════════════════════════════════════════════════════╗")
+                print(f"║  🚀 AEGIS CLUSTER TASK DISPATCHED & PROCESSED                   ")
+                print(f"╠══════════════════════════════════════════════════════════════════╣")
+                print(f"║  Task ID:       {task_id}                                       ")
+                print(f"║  Assigned Node: {assigned.upper()}                              ")
+                print(f"║  Reviewer Node: {reviewer.upper()}                              ")
+                print(f"║  Status:        {status}                                        ")
+                if filename:
+                    print(f"║  Generated File:{filename} ({size_bytes} bytes)                 ")
+                if vault_path:
+                    print(f"║  Vault Storage: aegis_storage_vault/{vault_path}                ")
+                print(f"╚══════════════════════════════════════════════════════════════════╝")
+
+                if speech:
+                    print(f"\n[AI Voice Dictation]: {speech}")
+
+                if code:
+                    print(f"\n====================== [GENERATED TEXT & CODE] ======================")
+                    print(code)
+                    print(f"====================================================================\n")
+
+                print(f"--> DGX Dynamic Island HUD par model GPU stream active ho chuka hai!")
+                print(f"--> Local Vault File: aegis_storage_vault/{assigned}/outputs/{task_id}/{filename or ''}\n")
                 return
         except Exception as e:
             last_err = e
