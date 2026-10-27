@@ -10,7 +10,7 @@ NODE_ID="dgx-node-7"
 ROLE="Git & Tool Agent"
 GATEWAY_URL="https://raspberrypi.tailc8c1f6.ts.net"
 STORAGE_URL="https://labg418pc12.tailc8c1f6.ts.net:8443"
-MODEL_NAME="dbrx:132b-instruct-q4_K_M"
+MODEL_NAME="dbrx"
 
 AEGIS_DIR="$HOME/aegis/${NODE_ID}"
 AGENT_FILE="$AEGIS_DIR/dgx_agent.py"

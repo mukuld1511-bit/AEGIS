@@ -10,7 +10,7 @@ NODE_ID="dgx-node-6"
 ROLE="Visual Studio"
 GATEWAY_URL="https://raspberrypi.tailc8c1f6.ts.net"
 STORAGE_URL="https://labg418pc12.tailc8c1f6.ts.net:8443"
-MODEL_NAME="flux-1-dev:12b-fp16"
+MODEL_NAME="llama3.2-vision:11b"
 
 AEGIS_DIR="$HOME/aegis/${NODE_ID}"
 AGENT_FILE="$AEGIS_DIR/dgx_agent.py"

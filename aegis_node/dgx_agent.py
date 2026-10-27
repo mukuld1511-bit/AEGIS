@@ -835,16 +835,22 @@ class DynamicIslandWidget(QWidget):
             short_model = "141B"
         elif "132b" in m_lower or "dbrx" in m_lower:
             short_model = "132B"
+        elif "command-r-plus" in m_lower or "104b" in m_lower:
+            short_model = "104B"
+        elif "command-r" in m_lower or "35b" in m_lower:
+            short_model = "35B"
         elif "90b" in m_lower:
             short_model = "90B"
         elif "72b" in m_lower:
             short_model = "72B"
         elif "70b" in m_lower:
             short_model = "70B"
-        elif "32b" in m_lower:
+        elif "34b" in m_lower or "32b" in m_lower:
             short_model = "32B"
         elif "flux" in m_lower or "12b" in m_lower:
             short_model = "FLUX"
+        elif "11b" in m_lower:
+            short_model = "11B"
         elif "16b" in m_lower:
             short_model = "16B"
         elif "14b" in m_lower:
